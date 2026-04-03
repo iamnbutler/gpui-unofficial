@@ -3,7 +3,8 @@ name = "zlog-unofficial"
 version = "0.230.1"
 edition = "2024"
 license = "GPL-3.0-or-later"
-repository = "https://github.com/gpui-unofficial/gpui-unofficial"
+repository = "https://github.com/iamnbutler/gpui-unofficial"
+description = "Unofficial release of Zed's zlog crate"
 
 [lib]
 path = "src/zlog.rs"

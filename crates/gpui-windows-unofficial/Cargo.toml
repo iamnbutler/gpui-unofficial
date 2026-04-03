@@ -3,7 +3,8 @@ name = "gpui-windows-unofficial"
 version = "0.230.1"
 edition = "2024"
 license = "Apache-2.0"
-repository = "https://github.com/gpui-unofficial/gpui-unofficial"
+repository = "https://github.com/iamnbutler/gpui-unofficial"
+description = "Unofficial release of Zed's gpui_windows crate"
 
 [lib]
 path = "src/gpui_windows.rs"

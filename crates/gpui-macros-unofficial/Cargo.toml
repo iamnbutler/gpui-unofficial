@@ -4,7 +4,7 @@ version = "0.230.1"
 edition = "2024"
 license = "Apache-2.0"
 description = "Macros used by gpui"
-repository = "https://github.com/gpui-unofficial/gpui-unofficial"
+repository = "https://github.com/iamnbutler/gpui-unofficial"
 
 [features]
 

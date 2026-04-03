@@ -223,7 +223,7 @@ fn transform_cargo_toml(
             // Set repository
             table.insert(
                 "repository",
-                toml_edit::value("https://github.com/gpui-unofficial/gpui-unofficial"),
+                toml_edit::value("https://github.com/iamnbutler/gpui-unofficial"),
             );
 
             // Remove publish = false if present
@@ -232,6 +232,14 @@ fn transform_cargo_toml(
             // Ensure license is set
             if !table.contains_key("license") {
                 table.insert("license", toml_edit::value("Apache-2.0"));
+            }
+
+            // Ensure description is set (required by crates.io)
+            if !table.contains_key("description") {
+                table.insert(
+                    "description",
+                    toml_edit::value(format!("Unofficial release of Zed's {original_name} crate")),
+                );
             }
         }
     }
