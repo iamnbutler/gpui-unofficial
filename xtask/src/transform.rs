@@ -39,6 +39,13 @@ pub const CRATE_PUBLISH_ORDER: &[&str] = &[
     "gpui_platform",
 ];
 
+/// Fallback crates.io versions for workspace dependencies that zed pins via git
+/// with no version field. crates.io rejects git dependencies, so we substitute
+/// the closest published version.
+static GIT_ONLY_FALLBACK_VERSIONS: &[(&str, &str)] = &[
+    ("proptest", "1"),
+];
+
 /// Map from original crate name to unofficial name
 pub fn unofficial_name(name: &str) -> String {
     if name == "gpui" {
@@ -379,7 +386,7 @@ fn transform_dependencies(
                 } else {
                     // External crate - resolve from workspace
                     if let Some(workspace_dep) = workspace_deps.get(&dep_name) {
-                        let resolved = resolve_workspace_dep(workspace_dep, dep)?;
+                        let resolved = resolve_workspace_dep(workspace_dep, dep, &dep_name, use_local_deps)?;
                         deps_table.insert(&dep_name, resolved);
                     }
                 }
@@ -390,7 +397,7 @@ fn transform_dependencies(
     Ok(())
 }
 
-fn resolve_workspace_dep(workspace_def: &Item, usage: &Item) -> Result<Item> {
+fn resolve_workspace_dep(workspace_def: &Item, usage: &Item, dep_name: &str, use_local_deps: bool) -> Result<Item> {
     // Get the base definition from workspace
     let mut result = if let Some(version) = workspace_def.as_str() {
         // Simple version string
@@ -411,18 +418,29 @@ fn resolve_workspace_dep(workspace_def: &Item, usage: &Item) -> Result<Item> {
             new_table.insert("package", pkg.into());
         }
 
-        // Copy git fields if present
-        if let Some(git) = table.get("git").and_then(|v| v.as_str()) {
-            new_table.insert("git", git.into());
-        }
-        if let Some(rev) = table.get("rev").and_then(|v| v.as_str()) {
-            new_table.insert("rev", rev.into());
-        }
-        if let Some(branch) = table.get("branch").and_then(|v| v.as_str()) {
-            new_table.insert("branch", branch.into());
-        }
-        if let Some(tag) = table.get("tag").and_then(|v| v.as_str()) {
-            new_table.insert("tag", tag.into());
+        // crates.io rejects any dependency with git fields. Only include them
+        // in local mode (build verification). When publishing, if there's no
+        // version field, substitute from the fallback map.
+        if use_local_deps {
+            if let Some(git) = table.get("git").and_then(|v| v.as_str()) {
+                new_table.insert("git", git.into());
+            }
+            if let Some(rev) = table.get("rev").and_then(|v| v.as_str()) {
+                new_table.insert("rev", rev.into());
+            }
+            if let Some(branch) = table.get("branch").and_then(|v| v.as_str()) {
+                new_table.insert("branch", branch.into());
+            }
+            if let Some(tag) = table.get("tag").and_then(|v| v.as_str()) {
+                new_table.insert("tag", tag.into());
+            }
+        } else if table.get("git").is_some() && new_table.get("version").is_none() {
+            // Git-only dep (no version): use known fallback crates.io version
+            if let Some(&(_, fallback)) = GIT_ONLY_FALLBACK_VERSIONS.iter().find(|(n, _)| *n == dep_name) {
+                new_table.insert("version", fallback.into());
+            } else {
+                eprintln!("WARNING: git-only dep '{dep_name}' has no fallback version — add it to GIT_ONLY_FALLBACK_VERSIONS");
+            }
         }
 
         // Copy default-features if present
