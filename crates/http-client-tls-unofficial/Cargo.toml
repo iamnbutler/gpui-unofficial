@@ -1,0 +1,19 @@
+[package]
+name = "http-client-tls-unofficial"
+version = "0.230.1"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/gpui-unofficial/gpui-unofficial"
+
+[features]
+test-support = []
+
+[lib]
+path = "src/http_client_tls.rs"
+doctest = true
+
+[dependencies]
+rustls = { version = "0.23.26" }
+rustls-platform-verifier = { version = "0.5.0" }
+
+[workspace]

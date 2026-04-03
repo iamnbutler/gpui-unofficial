@@ -1,0 +1,46 @@
+[package]
+name = "http-client-unofficial"
+version = "0.230.1"
+edition = "2024"
+license = "Apache-2.0"
+description = "A HTTP client library for Zed and GPUI"
+repository = "https://github.com/gpui-unofficial/gpui-unofficial"
+
+[features]
+test-support = []
+
+[lib]
+path = "src/http_client.rs"
+doctest = true
+
+[dependencies]
+anyhow = { version = "1.0.86" }
+async-compression = { version = "0.4", features = ["bzip2", "gzip", "futures-io"] }
+bytes = { version = "1.0" }
+derive_more = { version = "2.1.1", features = [
+    "add",
+    "add_assign",
+    "deref",
+    "deref_mut",
+    "from_str",
+    "mul",
+    "mul_assign",
+    "not"] }
+futures = { version = "0.3" }
+http-body = { version = "1.0" }
+http = { version = "1.1" }
+log = { version = "0.4.16", features = ["kv_unstable_serde", "serde"] }
+parking_lot = { version = "0.12.1" }
+serde = { version = "1.0.221", features = ["derive", "rc"] }
+serde_json = { version = "1.0.144", features = ["preserve_order", "raw_value"] }
+serde_urlencoded = { version = "0.7" }
+url = { version = "2.2" }
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+util = { package = "util-unofficial", version = "0.230.1" }
+async-fs = { version = "2.1" }
+async-tar = { version = "0.5.1" }
+sha2 = { version = "0.10" }
+tempfile = { version = "3.20.0" }
+
+[workspace]

@@ -1,0 +1,92 @@
+[package]
+name = "gpui-windows-unofficial"
+version = "0.230.1"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/gpui-unofficial/gpui-unofficial"
+
+[lib]
+path = "src/gpui_windows.rs"
+
+[features]
+default = ["gpui/default"]
+test-support = ["gpui/test-support"]
+screen-capture = ["gpui/screen-capture", "scap"]
+
+[dependencies]
+gpui = { package = "gpui-unofficial", version = "0.230.1" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+anyhow = { version = "1.0.86" }
+collections = { package = "collections-unofficial", version = "0.230.1" }
+etagere = "0.2"
+futures = { version = "0.3" }
+image = { version = "0.25.1" }
+itertools = { version = "0.14.0" }
+log = { version = "0.4.16", features = ["kv_unstable_serde", "serde"] }
+parking_lot = { version = "0.12.1" }
+rand = { version = "0.9" }
+raw-window-handle = "0.6"
+smallvec = { version = "1.6", features = ["union", "const_new"] }
+util = { package = "util-unofficial", version = "0.230.1" }
+uuid = { version = "1.1.2", features = ["v4", "v5", "v7", "serde"] }
+windows = { version = "0.61", features = [
+    "Foundation_Numerics",
+    "Globalization_DateTimeFormatting",
+    "Storage_Search",
+    "Storage_Streams",
+    "System_Threading",
+    "UI_ViewManagement",
+    "Wdk_System_SystemServices",
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Direct3D_Fxc",
+    "Win32_Graphics_DirectComposition",
+    "Win32_Graphics_DirectWrite",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_Imaging",
+    "Win32_Graphics_Hlsl",
+    "Win32_Networking_WinSock",
+    "Win32_Security",
+    "Win32_Security_Credentials",
+    "Win32_Security_Cryptography",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Console",
+    "Win32_System_DataExchange",
+    "Win32_System_IO",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_System_Performance",
+    "Win32_System_Pipes",
+    "Win32_System_RestartManager",
+    "Win32_System_SystemInformation",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+    "Win32_System_Variant",
+    "Win32_System_WinRT",
+    "Win32_UI_Controls",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_Ime",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Media"] }
+windows-core = { version = "0.61" }
+windows-numerics = "0.2"
+windows-registry = "0.5"
+scap = { version = "0.0.8-zed", package = "zed-scap", git = "https://github.com/zed-industries/scap", rev = "4afea48c3b002197176fb19cd0f9b180dd36eaac", default-features = false, optional = true }
+
+[target.'cfg(target_os = "windows")'.build-dependencies]
+windows-registry = "0.5"
+
+[workspace]

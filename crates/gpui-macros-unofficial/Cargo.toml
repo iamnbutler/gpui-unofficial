@@ -1,0 +1,25 @@
+[package]
+name = "gpui-macros-unofficial"
+version = "0.230.1"
+edition = "2024"
+license = "Apache-2.0"
+description = "Macros used by gpui"
+repository = "https://github.com/gpui-unofficial/gpui-unofficial"
+
+[features]
+
+[lib]
+path = "src/gpui_macros.rs"
+proc-macro = true
+doctest = true
+
+[dependencies]
+heck = { version = "0.5" }
+proc-macro2 = { version = "1.0.93" }
+quote = { version = "1.0.9" }
+syn = { version = "2.0.101", features = ["full", "extra-traits", "visit-mut"] }
+
+[dev-dependencies]
+gpui = { package = "gpui-unofficial", version = "0.230.1" }
+
+[workspace]

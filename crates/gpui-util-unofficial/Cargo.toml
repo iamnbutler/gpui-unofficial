@@ -1,0 +1,12 @@
+[package]
+name = "gpui-util-unofficial"
+version = "0.230.1"
+edition = "2024"
+repository = "https://github.com/gpui-unofficial/gpui-unofficial"
+license = "Apache-2.0"
+
+[dependencies]
+log = { version = "0.4.16", features = ["kv_unstable_serde", "serde"] }
+anyhow = { version = "1.0.86" }
+
+[workspace]

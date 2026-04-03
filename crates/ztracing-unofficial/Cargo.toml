@@ -1,0 +1,20 @@
+[package]
+name = "ztracing-unofficial"
+version = "0.230.1"
+edition = "2024"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/gpui-unofficial/gpui-unofficial"
+
+[features]
+tracy = ["tracing-tracy", "tracy-client"]
+
+[dependencies]
+zlog = { package = "zlog-unofficial", version = "0.230.1" }
+tracing = { version = "0.1.40" }
+
+tracing-subscriber = "0.3.22"
+tracing-tracy = { version = "0.11.4", optional = true, features = ["enable", "ondemand"] }
+tracy-client = { version = "0.18.2", optional = true, features = ["enable", "ondemand"] }
+ztracing_macro = { package = "ztracing-macro-unofficial", version = "0.230.1" }
+
+[workspace]

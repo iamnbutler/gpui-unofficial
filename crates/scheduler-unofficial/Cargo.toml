@@ -1,0 +1,25 @@
+[package]
+name = "scheduler-unofficial"
+version = "0.230.1"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/gpui-unofficial/gpui-unofficial"
+
+[lib]
+path = "src/scheduler.rs"
+doctest = false
+
+[features]
+test-support = []
+
+[dependencies]
+async-task = { version = "4.7" }
+backtrace = { version = "0.3" }
+chrono = { version = "0.4", features = ["serde"] }
+flume = "0.11"
+futures = { version = "0.3" }
+parking_lot = { version = "0.12.1" }
+rand = { version = "0.9" }
+web-time = { version = "1.1.0" }
+
+[workspace]

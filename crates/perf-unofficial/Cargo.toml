@@ -1,0 +1,16 @@
+[package]
+name = "perf-unofficial"
+version = "0.230.1"
+edition = "2024"
+license = "Apache-2.0"
+description = "A tool for measuring Zed test performance, with too many Clippy lints"
+repository = "https://github.com/gpui-unofficial/gpui-unofficial"
+
+[lib]
+
+[dependencies]
+collections = { package = "collections-unofficial", version = "0.230.1" }
+serde = { version = "1.0.221", features = ["derive", "rc"] }
+serde_json = { version = "1.0.144", features = ["preserve_order", "raw_value"] }
+
+[workspace]

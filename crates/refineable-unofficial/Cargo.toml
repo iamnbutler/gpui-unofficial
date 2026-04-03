@@ -1,0 +1,16 @@
+[package]
+name = "refineable-unofficial"
+version = "0.230.1"
+edition = "2024"
+license = "Apache-2.0"
+description = "A macro for creating 'refinement' types that can be used to partially initialize or mutate a complex struct"
+repository = "https://github.com/gpui-unofficial/gpui-unofficial"
+
+[lib]
+path = "src/refineable.rs"
+doctest = false
+
+[dependencies]
+derive_refineable = { package = "derive-refineable-unofficial", version = "0.230.1" }
+
+[workspace]

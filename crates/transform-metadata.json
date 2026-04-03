@@ -1,0 +1,31 @@
+{
+  "crates": [
+    "gpui_util",
+    "collections",
+    "refineable/derive_refineable",
+    "refineable",
+    "tooling/perf",
+    "util_macros",
+    "util",
+    "ztracing_macro",
+    "ztracing",
+    "zlog",
+    "scheduler",
+    "sum_tree",
+    "http_client",
+    "http_client_tls",
+    "reqwest_client",
+    "media",
+    "gpui_macros",
+    "gpui",
+    "gpui_wgpu",
+    "gpui_macos",
+    "gpui_linux",
+    "gpui_windows",
+    "gpui_web",
+    "gpui_platform"
+  ],
+  "transformed_at": "2026-04-03T01:14:59.858326154+00:00",
+  "zed_commit": "bf3a14350a4fa4b67747afe2e50128fb8fea4fa3",
+  "zed_tag": "v0.230.1"
+}
