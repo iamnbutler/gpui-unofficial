@@ -4,9 +4,9 @@ use std::path::Path;
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
-use toml_edit::DocumentMut;
+use toml_edit::{DocumentMut, Item};
 
-use crate::transform::{remove_dep_from_features, CRATE_PUBLISH_ORDER, crate_name_from_path, unofficial_name};
+use crate::transform::{lookup_crates_io_version, remove_dep_from_features, CRATE_PUBLISH_ORDER, crate_name_from_path, unofficial_name};
 
 /// crates.io allows a burst of 5 new crates, then 1 per 10 minutes.
 /// For existing crates (version updates), the limit is more generous.
@@ -81,11 +81,13 @@ fn patch_git_deps_for_publish(crate_dir: &Path) -> Result<()> {
 }
 
 /// Patch a single dependency section: strip git fields from git+version deps,
-/// remove git-only deps entirely (tracking optional ones for feature cleanup).
+/// and for git-only deps: replace non-optional [dependencies] with the crates.io
+/// version (via `cargo search`), or remove optional/dev deps entirely.
 fn patch_dep_section_git(doc: &mut DocumentMut, section: &str, removed_optionals: &mut Vec<String>) {
-    // Phase 1: identify what to strip and what to remove
+    // Phase 1: identify what to strip, remove, or replace with a crates.io version
     let mut to_strip: Vec<String> = Vec::new();
     let mut to_remove: Vec<String> = Vec::new();
+    let mut to_replace: Vec<(String, String)> = Vec::new(); // (dep_name, crates_io_version)
 
     if let Some(deps) = doc.get(section) {
         if let Some(table) = deps.as_table_like() {
@@ -99,6 +101,22 @@ fn patch_dep_section_git(doc: &mut DocumentMut, section: &str, removed_optionals
                             .unwrap_or(false);
                         if has_version {
                             to_strip.push(dep_name.to_string());
+                        } else if !is_optional && section == "dependencies" {
+                            // Non-optional core dep with no version — look up on crates.io.
+                            // The zed-industries fork (e.g. wgpu branch="v29") tracks the
+                            // official crates.io release of the same major version.
+                            let pkg_name = dep_table
+                                .get("package")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(dep_name);
+                            if let Some(ver) = lookup_crates_io_version(pkg_name) {
+                                println!("  Replacing git-only dep '{dep_name}' with crates.io {pkg_name}@{ver}");
+                                to_replace.push((dep_name.to_string(), ver));
+                            } else {
+                                // No crates.io equivalent found — remove (will likely fail to compile)
+                                eprintln!("  WARNING: git-only dep '{dep_name}' has no crates.io equivalent; removing");
+                                to_remove.push(dep_name.to_string());
+                            }
                         } else {
                             if is_optional {
                                 removed_optionals.push(dep_name.to_string());
@@ -126,6 +144,11 @@ fn patch_dep_section_git(doc: &mut DocumentMut, section: &str, removed_optionals
             }
             for dep_name in &to_remove {
                 table.remove(dep_name);
+            }
+            for (dep_name, ver) in &to_replace {
+                let mut new_dep = toml_edit::InlineTable::new();
+                new_dep.insert("version", ver.as_str().into());
+                table.insert(dep_name, Item::Value(toml_edit::Value::InlineTable(new_dep)));
             }
         }
     }

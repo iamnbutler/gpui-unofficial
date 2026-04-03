@@ -397,11 +397,33 @@ fn transform_dependencies(
                                 deps_table.insert(&dep_name, resolved);
                             }
                             None => {
-                                // Git-only dep with no crates.io equivalent — remove it
-                                if is_optional {
-                                    removed_optionals.push(dep_name.clone());
+                                // Git-only dep with no version field.
+                                // For non-optional [dependencies], try to find the official crates.io
+                                // version (e.g. the zed-industries/wgpu fork tracks wgpu 29.x on crates.io).
+                                let resolved_via_lookup = if !is_optional && section == "dependencies" {
+                                    let pkg = workspace_dep
+                                        .as_table_like()
+                                        .and_then(|t| t.get("package"))
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or(&dep_name)
+                                        .to_string();
+                                    lookup_crates_io_version(&pkg).map(|ver| {
+                                        println!("  Resolved git-only dep '{dep_name}' to crates.io {pkg}@{ver}");
+                                        let mut t = toml_edit::InlineTable::new();
+                                        t.insert("version", ver.as_str().into());
+                                        Item::Value(Value::InlineTable(t))
+                                    })
+                                } else {
+                                    None
+                                };
+                                if let Some(resolved) = resolved_via_lookup {
+                                    deps_table.insert(&dep_name, resolved);
+                                } else {
+                                    if is_optional {
+                                        removed_optionals.push(dep_name.clone());
+                                    }
+                                    deps_to_remove.push(dep_name.clone());
                                 }
-                                deps_to_remove.push(dep_name.clone());
                             }
                         }
                     }
@@ -576,9 +598,24 @@ fn remove_inspector_feature(doc: &mut DocumentMut) {
     }
 }
 
-// No source file transformation needed - we use Cargo.toml package aliasing instead
-// e.g., collections = { package = "collections-unofficial", version = "..." }
-// This lets code keep using `use collections::...` while pulling the unofficial crate
+/// Look up the latest version of a package on crates.io via `cargo search`.
+/// Returns the version string (e.g. "29.0.1") or None if not found.
+pub(crate) fn lookup_crates_io_version(package: &str) -> Option<String> {
+    let output = Command::new("cargo")
+        .args(["search", package, "--limit", "1"])
+        .output()
+        .ok()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let prefix = format!("{package} = \"");
+    for line in stdout.lines() {
+        if line.starts_with(&prefix) {
+            let after = &line[prefix.len()..];
+            let version = after.split('"').next()?;
+            return Some(version.to_string());
+        }
+    }
+    None
+}
 
 fn zed_tag_to_version(tag: &str) -> String {
     // Convert "v0.185.0" to "0.185.0"
