@@ -91,9 +91,20 @@ pub fn run(crates_dir: &str, dry_run: bool) -> Result<()> {
 
             let stderr = String::from_utf8_lossy(&output.stderr);
 
-            // Version already published — skip
-            if stderr.contains("already exists") {
+            // Version already published — skip (cargo may say "already exists" or "already uploaded")
+            if stderr.contains("already exists") || stderr.contains("already uploaded") {
                 println!("  {pkg_name} already exists on crates.io, skipping.");
+                break;
+            }
+
+            // Git dependency — crates.io rejects these; skip the crate rather than aborting the run
+            if stderr.contains("does not specify a version")
+                || (stderr.contains("git") && stderr.contains("not allowed"))
+                || stderr.contains("without a version specified")
+            {
+                println!(
+                    "  Skipping {pkg_name}: has git-only dependencies incompatible with crates.io"
+                );
                 break;
             }
 

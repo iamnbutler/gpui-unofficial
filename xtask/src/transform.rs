@@ -411,18 +411,22 @@ fn resolve_workspace_dep(workspace_def: &Item, usage: &Item) -> Result<Item> {
             new_table.insert("package", pkg.into());
         }
 
-        // Copy git fields if present
-        if let Some(git) = table.get("git").and_then(|v| v.as_str()) {
-            new_table.insert("git", git.into());
-        }
-        if let Some(rev) = table.get("rev").and_then(|v| v.as_str()) {
-            new_table.insert("rev", rev.into());
-        }
-        if let Some(branch) = table.get("branch").and_then(|v| v.as_str()) {
-            new_table.insert("branch", branch.into());
-        }
-        if let Some(tag) = table.get("tag").and_then(|v| v.as_str()) {
-            new_table.insert("tag", tag.into());
+        // Only copy git fields when there is no version — crates.io rejects any dep with a git
+        // field, so when both version and git are present (e.g. zed-font-kit, zed-reqwest) we
+        // prefer the version and drop the git/rev/branch/tag fields.
+        if new_table.get("version").is_none() {
+            if let Some(git) = table.get("git").and_then(|v| v.as_str()) {
+                new_table.insert("git", git.into());
+            }
+            if let Some(rev) = table.get("rev").and_then(|v| v.as_str()) {
+                new_table.insert("rev", rev.into());
+            }
+            if let Some(branch) = table.get("branch").and_then(|v| v.as_str()) {
+                new_table.insert("branch", branch.into());
+            }
+            if let Some(tag) = table.get("tag").and_then(|v| v.as_str()) {
+                new_table.insert("tag", tag.into());
+            }
         }
 
         // Copy default-features if present
