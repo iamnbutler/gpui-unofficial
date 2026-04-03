@@ -55,6 +55,9 @@ jobs:
     needs: check-release
     if: needs.check-release.outputs.new_release == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 
