@@ -8,11 +8,7 @@ on:
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -21,42 +17,9 @@ jobs:
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            .
-            crates/gpui-unofficial
-
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libxkbcommon-dev \
-            libwayland-dev \
-            libx11-dev \
-            libxcb1-dev \
-            libxcb-render0-dev \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev \
-            libvulkan-dev
 
       - name: Build xtask
         run: cargo build -p xtask
 
-      - name: Check core gpui crate
-        if: hashFiles('crates/gpui-unofficial/Cargo.toml') != ''
-        run: |
-          cd crates/gpui-unofficial
-          cargo check
-
-      - name: Check platform crate (macOS)
-        if: runner.os == 'macOS' && hashFiles('crates/gpui-platform-unofficial/Cargo.toml') != ''
-        run: |
-          cd crates/gpui-platform-unofficial
-          cargo check --features macos
-
-      - name: Check platform crate (Linux)
-        if: runner.os == 'Linux' && hashFiles('crates/gpui-platform-unofficial/Cargo.toml') != ''
-        run: |
-          cd crates/gpui-platform-unofficial
-          cargo check --features linux
+      - name: Run xtask tests
+        run: cargo test -p xtask

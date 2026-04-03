@@ -69,22 +69,23 @@ jobs:
           git clone --depth=1 --branch ${{ needs.check-release.outputs.zed_tag }} \
             https://github.com/zed-industries/zed.git /tmp/zed
 
-      - name: Transform crates
+      - name: Transform crates (local deps for build check)
         run: |
           cargo run -p xtask -- transform \
             --zed-tag ${{ needs.check-release.outputs.zed_tag }} \
-            --zed-path /tmp/zed
+            --zed-path /tmp/zed \
+            --local
 
       - name: Build check
         run: |
           cd crates/gpui-unofficial
           cargo check
 
-      - name: Upload transformed crates
-        uses: actions/upload-artifact@v4
-        with:
-          name: transformed-crates
-          path: crates/
+      - name: Re-transform crates (version deps for publishing)
+        run: |
+          cargo run -p xtask -- transform \
+            --zed-tag ${{ needs.check-release.outputs.zed_tag }} \
+            --zed-path /tmp/zed
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v6
@@ -100,7 +101,7 @@ jobs:
             - Updated versions to match zed release
 
             ## Build Status
-            - [ ] Build check passed
+            - [x] Build check passed (with path deps)
             - [ ] Ready for release
           branch: update-${{ needs.check-release.outputs.zed_tag }}
           delete-branch: true
