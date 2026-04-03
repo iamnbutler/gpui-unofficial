@@ -151,6 +151,38 @@ fn strip_internal_dev_deps(doc: &mut DocumentMut, section: &str) {
     }
 }
 
+/// Prepend an unofficial release notice to a crate's README before publishing.
+fn patch_readme_for_publish(crate_dir: &Path, original_name: &str) {
+    let readme_path = crate_dir.join("README.md");
+    let original_name_kebab = original_name.replace('_', "-");
+    let notice = format!(
+        "> **Note:** This is an unofficial release of Zed's \
+         [{original_name}](https://github.com/zed-industries/zed/tree/main/crates/{original_name}) crate, \
+         published to crates.io by [gpui-unofficial](https://github.com/iamnbutler/gpui-unofficial). \
+         It is not maintained by the Zed team. For issues with the crate itself, see the \
+         [Zed repository](https://github.com/zed-industries/zed).\n\n"
+    );
+
+    let content = fs::read_to_string(&readme_path).unwrap_or_default();
+    if content.contains("unofficial release") {
+        return; // Already patched
+    }
+
+    // Prepend notice, replacing the first heading if it exists
+    let patched = if let Some(rest) = content.strip_prefix("# ") {
+        // Replace original heading with unofficial name, then add notice
+        let heading_end = rest.find('\n').unwrap_or(rest.len());
+        format!(
+            "# {original_name_kebab}-gpui-unofficial\n\n{notice}{}\n",
+            &rest[heading_end..].trim_start_matches('\n')
+        )
+    } else {
+        format!("{notice}{content}")
+    };
+
+    let _ = fs::write(&readme_path, patched);
+}
+
 /// Patch a single dependency section: strip git fields from git+version deps,
 /// and for git-only deps: replace non-optional [dependencies] with the crates.io
 /// version (via `cargo search`), or remove optional/dev deps entirely.
@@ -339,6 +371,9 @@ pub fn run(crates_dir: &str, dry_run: bool) -> Result<()> {
         // Patch any git dependencies in the already-generated Cargo.toml before publishing.
         // The transform may have baked in git fields that crates.io rejects.
         patch_git_deps_for_publish(&crate_path)?;
+
+        // Patch README to note this is an unofficial release
+        patch_readme_for_publish(&crate_path, crate_name);
 
         println!(
             "[{}/{}] Publishing {pkg_name}...",
