@@ -42,7 +42,7 @@ anyhow = { version = "1.0.86" }
 async-task = "4.7"
 backtrace = { version = "0.3", optional = true }
 bitflags = { version = "2.6.0", optional = true }
-collections = { package = "collections-unofficial", version = "0.230.1" }
+collections = { package = "collections-gpui-unofficial", version = "0.230.1" }
 ctor = { version = "0.4.0" }
 derive_more = { version = "2.1.1", features = [
     "add",
@@ -56,8 +56,8 @@ derive_more = { version = "2.1.1", features = [
 etagere = "0.2"
 futures = { version = "0.3" }
 futures-concurrency = { version = "7.7.1" }
-gpui_macros = { package = "gpui-macros-unofficial", version = "0.230.1" }
-http_client = { package = "http-client-unofficial", version = "0.230.1" }
+gpui_macros = { package = "gpui-macros-gpui-unofficial", version = "0.230.1" }
+http_client = { package = "http-client-gpui-unofficial", version = "0.230.1" }
 image = { version = "0.25.1" }
 inventory = { version = "0.3.19" }
 itertools = { version = "0.14.0" }
@@ -71,15 +71,15 @@ chrono = { version = "0.4", features = ["serde"] }
 profiling = { version = "1" }
 rand = { version = "0.9" }
 raw-window-handle = "0.6"
-refineable = { package = "refineable-unofficial", version = "0.230.1" }
-scheduler = { package = "scheduler-unofficial", version = "0.230.1" }
+refineable = { package = "refineable-gpui-unofficial", version = "0.230.1" }
+scheduler = { package = "scheduler-gpui-unofficial", version = "0.230.1" }
 resvg = { version = "0.45.0", default-features = false, features = [
     "text",
     "system-fonts",
     "memmap-fonts",
 ] }
 usvg = { version = "0.45.0", default-features = false }
-util_macros = { package = "util-macros-unofficial", version = "0.230.1" }
+util_macros = { package = "util-macros-gpui-unofficial", version = "0.230.1" }
 schemars = { version = "1.0", features = ["indexmap2"] }
 seahash = "4.1"
 serde = { version = "1.0.221", features = ["derive", "rc"] }
@@ -89,10 +89,10 @@ smallvec = { version = "1.6", features = ["union", "const_new"] }
 async-channel = { version = "2.5.0" }
 stacksafe = { version = "0.1" }
 strum = { version = "0.27.2", features = ["derive"] }
-sum_tree = { package = "sum-tree-unofficial", version = "0.230.1" }
+sum_tree = { package = "sum-tree-gpui-unofficial", version = "0.230.1" }
 taffy = "=0.9.0"
 thiserror = { version = "2.0.12" }
-gpui_util = { package = "gpui-util-unofficial", version = "0.230.1" }
+gpui_util = { package = "gpui-util-gpui-unofficial", version = "0.230.1" }
 waker-fn = "1.2.0"
 lyon = "1.0"
 pin-project = "1.1.10"
@@ -121,7 +121,7 @@ core-text = "21"
 font-kit = { git = "https://github.com/zed-industries/font-kit", rev = "110523127440aefb11ce0cf280ae7c5071337ec5", package = "zed-font-kit", version = "0.14.1-zed", optional = true }
 foreign-types = "0.5"
 log = { version = "0.4.16", features = ["kv_unstable_serde", "serde"] }
-media = { package = "media-unofficial", version = "0.230.1" }
+media = { package = "media-gpui-unofficial", version = "0.230.1" }
 objc = { version = "0.2" }
 objc2 = { version = "0.6", optional = true }
 objc2-metal = { version = "0.3", optional = true }
@@ -142,23 +142,23 @@ windows = { version = "0.61", features = ["Win32_Foundation"] }
 
 [dev-dependencies]
 backtrace = { version = "0.3" }
-collections = { package = "collections-unofficial", version = "0.230.1", features = ["test-support"] }
+collections = { package = "collections-gpui-unofficial", version = "0.230.1", features = ["test-support"] }
 env_logger = { version = "0.11" }
-gpui_platform = { package = "gpui-platform-unofficial", version = "0.230.1", features = ["font-kit"] }
+gpui_platform = { package = "gpui-platform-gpui-unofficial", version = "0.230.1", features = ["font-kit"] }
 lyon = { version = "1.0", features = ["extra"] }
 rand = { version = "0.9" }
-scheduler = { package = "scheduler-unofficial", version = "0.230.1", features = ["test-support"] }
+scheduler = { package = "scheduler-gpui-unofficial", version = "0.230.1", features = ["test-support"] }
 unicode-segmentation = { version = "1.10" }
-gpui_util = { package = "gpui-util-unofficial", version = "0.230.1" }
+gpui_util = { package = "gpui-util-gpui-unofficial", version = "0.230.1" }
 proptest = { git = "https://github.com/proptest-rs/proptest", rev = "3dca198a8fef1b32e3a66f1e1897c955b4dc5b5b", features = ["attr-macro"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
-http_client = { package = "http-client-unofficial", version = "0.230.1", features = ["test-support"] }
-reqwest_client = { package = "reqwest-client-unofficial", version = "0.230.1", features = ["test-support"] }
+http_client = { package = "http-client-gpui-unofficial", version = "0.230.1", features = ["test-support"] }
+reqwest_client = { package = "reqwest-client-gpui-unofficial", version = "0.230.1", features = ["test-support"] }
 
 [target.'cfg(target_family = "wasm")'.dev-dependencies]
 wasm-bindgen = { version = "0.2.113" }
-gpui_web = { package = "gpui-web-unofficial", version = "0.230.1" }
+gpui_web = { package = "gpui-web-gpui-unofficial", version = "0.230.1" }
 
 [build-dependencies]
 embed-resource = { version = "3.0", optional = true }

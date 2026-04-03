@@ -41,9 +41,11 @@ pub const CRATE_PUBLISH_ORDER: &[&str] = &[
 
 /// Map from original crate name to unofficial name
 pub fn unofficial_name(name: &str) -> String {
-    // Convert snake_case to kebab-case and add suffix
+    if name == "gpui" {
+        return "gpui-unofficial".to_string();
+    }
     let kebab = name.replace('_', "-");
-    format!("{kebab}-unofficial")
+    format!("{kebab}-gpui-unofficial")
 }
 
 pub fn run(zed_tag: &str, zed_path: Option<&str>, output_dir: &str, use_local_deps: bool) -> Result<()> {
