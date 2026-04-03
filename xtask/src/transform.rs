@@ -246,10 +246,11 @@ fn transform_cargo_toml(
         }
     }
 
-    // Transform dependencies
-    transform_dependencies(&mut doc, "dependencies", workspace_deps, &version, output_dir, use_local_deps)?;
-    transform_dependencies(&mut doc, "dev-dependencies", workspace_deps, &version, output_dir, use_local_deps)?;
-    transform_dependencies(&mut doc, "build-dependencies", workspace_deps, &version, output_dir, use_local_deps)?;
+    // Transform dependencies, collecting any optional deps that get removed (git-only, no crates.io equiv)
+    let mut removed_optionals: Vec<String> = Vec::new();
+    transform_dependencies(&mut doc, "dependencies", workspace_deps, &version, output_dir, use_local_deps, &mut removed_optionals)?;
+    transform_dependencies(&mut doc, "dev-dependencies", workspace_deps, &version, output_dir, use_local_deps, &mut removed_optionals)?;
+    transform_dependencies(&mut doc, "build-dependencies", workspace_deps, &version, output_dir, use_local_deps, &mut removed_optionals)?;
 
     // Handle target-specific dependencies
     if let Some(target) = doc.get_mut("target") {
@@ -265,7 +266,7 @@ fn transform_cargo_toml(
                                 let mut temp_doc = DocumentMut::new();
                                 if let Some(deps) = table.get(dep_section).cloned() {
                                     temp_doc.insert(dep_section, deps);
-                                    transform_dependencies(&mut temp_doc, dep_section, workspace_deps, &version, output_dir, use_local_deps)?;
+                                    transform_dependencies(&mut temp_doc, dep_section, workspace_deps, &version, output_dir, use_local_deps, &mut removed_optionals)?;
                                     if let Some(new_deps) = temp_doc.get(dep_section).cloned() {
                                         table.insert(dep_section, new_deps);
                                     }
@@ -276,6 +277,11 @@ fn transform_cargo_toml(
                 }
             }
         }
+    }
+
+    // Clean up [features] entries that referenced removed optional deps
+    for dep_name in &removed_optionals {
+        remove_dep_from_features(&mut doc, dep_name);
     }
 
     // Remove inspector feature from gpui_macros and gpui
@@ -314,6 +320,7 @@ fn transform_dependencies(
     version: &str,
     _output_dir: &Path,
     use_local_deps: bool,
+    removed_optionals: &mut Vec<String>,
 ) -> Result<()> {
     let Some(deps) = doc.get_mut(section) else {
         return Ok(());
@@ -324,6 +331,7 @@ fn transform_dependencies(
     };
 
     let dep_names: Vec<_> = deps_table.iter().map(|(k, _)| k.to_string()).collect();
+    let mut deps_to_remove: Vec<String> = Vec::new();
 
     for dep_name in dep_names {
         let is_internal = is_internal_crate(&dep_name);
@@ -379,29 +387,58 @@ fn transform_dependencies(
                 } else {
                     // External crate - resolve from workspace
                     if let Some(workspace_dep) = workspace_deps.get(&dep_name) {
-                        let resolved = resolve_workspace_dep(workspace_dep, dep)?;
-                        deps_table.insert(&dep_name, resolved);
+                        // Check optional before passing dep to resolve (borrow ends after call)
+                        let is_optional = dep.as_table_like()
+                            .and_then(|t| t.get("optional"))
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        match resolve_workspace_dep(workspace_dep, dep)? {
+                            Some(resolved) => {
+                                deps_table.insert(&dep_name, resolved);
+                            }
+                            None => {
+                                // Git-only dep with no crates.io equivalent — remove it
+                                if is_optional {
+                                    removed_optionals.push(dep_name.clone());
+                                }
+                                deps_to_remove.push(dep_name.clone());
+                            }
+                        }
                     }
                 }
             }
         }
     }
 
+    // Remove git-only deps after the loop (borrow of individual deps has ended)
+    let Some(deps) = doc.get_mut(section) else {
+        return Ok(());
+    };
+    let Some(deps_table) = deps.as_table_like_mut() else {
+        return Ok(());
+    };
+    for dep_name in deps_to_remove {
+        deps_table.remove(&dep_name);
+    }
+
     Ok(())
 }
 
-fn resolve_workspace_dep(workspace_def: &Item, usage: &Item) -> Result<Item> {
-    // Get the base definition from workspace
+fn resolve_workspace_dep(workspace_def: &Item, usage: &Item) -> Result<Option<Item>> {
+    // Get the base definition from workspace.
+    // Git fields (git/rev/branch/tag) are intentionally NOT copied — crates.io rejects them.
+    // For git+version deps the version alone is sufficient.
+    // For git-only deps (no version), we return None so the caller removes the dep.
     let mut result = if let Some(version) = workspace_def.as_str() {
         // Simple version string
         let mut table = toml_edit::InlineTable::new();
         table.insert("version", version.into());
         Item::Value(Value::InlineTable(table))
     } else if let Some(table) = workspace_def.as_table_like() {
-        // Table with version, git, or other fields
+        // Table with version and/or git fields
         let mut new_table = toml_edit::InlineTable::new();
 
-        // Copy version if present
+        // Copy version if present (git fields intentionally omitted)
         if let Some(version) = table.get("version").and_then(|v| v.as_str()) {
             new_table.insert("version", version.into());
         }
@@ -409,20 +446,6 @@ fn resolve_workspace_dep(workspace_def: &Item, usage: &Item) -> Result<Item> {
         // Copy package rename if present
         if let Some(pkg) = table.get("package").and_then(|v| v.as_str()) {
             new_table.insert("package", pkg.into());
-        }
-
-        // Copy git fields if present
-        if let Some(git) = table.get("git").and_then(|v| v.as_str()) {
-            new_table.insert("git", git.into());
-        }
-        if let Some(rev) = table.get("rev").and_then(|v| v.as_str()) {
-            new_table.insert("rev", rev.into());
-        }
-        if let Some(branch) = table.get("branch").and_then(|v| v.as_str()) {
-            new_table.insert("branch", branch.into());
-        }
-        if let Some(tag) = table.get("tag").and_then(|v| v.as_str()) {
-            new_table.insert("tag", tag.into());
         }
 
         // Copy default-features if present
@@ -441,6 +464,11 @@ fn resolve_workspace_dep(workspace_def: &Item, usage: &Item) -> Result<Item> {
                 }
                 new_table.insert("features", toml_edit::Value::Array(feat_arr));
             }
+        }
+
+        // If there's no version and no path, this is a git-only dep — not publishable
+        if !new_table.contains_key("version") && !new_table.contains_key("path") {
+            return Ok(None);
         }
 
         Item::Value(Value::InlineTable(new_table))
@@ -468,7 +496,48 @@ fn resolve_workspace_dep(workspace_def: &Item, usage: &Item) -> Result<Item> {
         }
     }
 
-    Ok(result)
+    Ok(Some(result))
+}
+
+/// Remove all references to a dep from the `[features]` section.
+/// Handles both bare `"dep_name"` activations and `"dep_name/feature"` entries.
+pub(crate) fn remove_dep_from_features(doc: &mut DocumentMut, dep_name: &str) {
+    // Phase 1: collect which features need a new array
+    let mut modifications: Vec<(String, toml_edit::Array)> = Vec::new();
+    if let Some(features) = doc.get("features") {
+        if let Some(table) = features.as_table_like() {
+            for (feat_name, feat_val) in table.iter() {
+                let arr = feat_val
+                    .as_value()
+                    .and_then(|v| v.as_array())
+                    .or_else(|| feat_val.as_array());
+                if let Some(arr) = arr {
+                    let mut new_arr = toml_edit::Array::new();
+                    let mut changed = false;
+                    for v in arr.iter() {
+                        if let Some(s) = v.as_str() {
+                            if s == dep_name || s.starts_with(&format!("{dep_name}/")) {
+                                changed = true;
+                                continue;
+                            }
+                        }
+                        new_arr.push(v.clone());
+                    }
+                    if changed {
+                        modifications.push((feat_name.to_string(), new_arr));
+                    }
+                }
+            }
+        }
+    }
+    // Phase 2: apply modifications
+    if let Some(features) = doc.get_mut("features") {
+        if let Some(table) = features.as_table_like_mut() {
+            for (feat_name, new_arr) in modifications {
+                table.insert(&feat_name, Item::Value(Value::Array(new_arr)));
+            }
+        }
+    }
 }
 
 // Features don't need transformation since we use package aliasing
