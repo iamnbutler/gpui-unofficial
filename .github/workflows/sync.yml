@@ -1,0 +1,106 @@
+name: Sync Zed Releases
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # Every 6 hours
+  workflow_dispatch:
+    inputs:
+      zed_tag:
+        description: 'Specific zed tag to sync (e.g., v0.185.0)'
+        required: false
+        type: string
+
+jobs:
+  check-release:
+    runs-on: ubuntu-latest
+    outputs:
+      new_release: ${{ steps.check.outputs.new_release }}
+      zed_tag: ${{ steps.check.outputs.zed_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for new zed release
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -n "${{ inputs.zed_tag }}" ]; then
+            echo "Using manual tag: ${{ inputs.zed_tag }}"
+            echo "new_release=true" >> $GITHUB_OUTPUT
+            echo "zed_tag=${{ inputs.zed_tag }}" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Get latest zed release
+          LATEST_TAG=$(gh release view --repo zed-industries/zed --json tagName -q '.tagName')
+          echo "Latest zed tag: $LATEST_TAG"
+
+          # Check if we've already processed this version
+          if [ -f crates/transform-metadata.json ]; then
+            CURRENT_TAG=$(jq -r '.zed_tag' crates/transform-metadata.json)
+            echo "Current tag: $CURRENT_TAG"
+
+            if [ "$LATEST_TAG" = "$CURRENT_TAG" ]; then
+              echo "Already up to date with $LATEST_TAG"
+              echo "new_release=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          fi
+
+          echo "New release found: $LATEST_TAG"
+          echo "new_release=true" >> $GITHUB_OUTPUT
+          echo "zed_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+
+  transform:
+    needs: check-release
+    if: needs.check-release.outputs.new_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Clone zed
+        run: |
+          git clone --depth=1 --branch ${{ needs.check-release.outputs.zed_tag }} \
+            https://github.com/zed-industries/zed.git /tmp/zed
+
+      - name: Transform crates
+        run: |
+          cargo run -p xtask -- transform \
+            --zed-tag ${{ needs.check-release.outputs.zed_tag }} \
+            --zed-path /tmp/zed
+
+      - name: Build check
+        run: |
+          cd crates/gpui-unofficial
+          cargo check
+
+      - name: Upload transformed crates
+        uses: actions/upload-artifact@v4
+        with:
+          name: transformed-crates
+          path: crates/
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "Update to zed ${{ needs.check-release.outputs.zed_tag }}"
+          title: "Update to zed ${{ needs.check-release.outputs.zed_tag }}"
+          body: |
+            Automated update to track zed release ${{ needs.check-release.outputs.zed_tag }}.
+
+            ## Changes
+            - Transformed crates from zed ${{ needs.check-release.outputs.zed_tag }}
+            - Updated versions to match zed release
+
+            ## Build Status
+            - [ ] Build check passed
+            - [ ] Ready for release
+          branch: update-${{ needs.check-release.outputs.zed_tag }}
+          delete-branch: true

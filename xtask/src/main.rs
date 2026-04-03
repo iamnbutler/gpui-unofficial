@@ -27,6 +27,10 @@ enum Commands {
         /// Output directory for transformed crates (default: ./crates)
         #[arg(long, default_value = "crates")]
         output: String,
+
+        /// Use path dependencies for local testing (instead of version deps)
+        #[arg(long)]
+        local: bool,
     },
 
     /// Publish crates to crates.io in dependency order
@@ -52,7 +56,8 @@ fn main() -> Result<()> {
             zed_tag,
             zed_path,
             output,
-        } => transform::run(&zed_tag, zed_path.as_deref(), &output),
+            local,
+        } => transform::run(&zed_tag, zed_path.as_deref(), &output, local),
 
         Commands::Publish { dry_run, crates_dir } => publish::run(&crates_dir, dry_run),
 

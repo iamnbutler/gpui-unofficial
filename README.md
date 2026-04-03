@@ -1,6 +1,6 @@
 # gpui-unofficial
 
-Automated, unofficial releases of [Zed's gpui framework](https://github.com/zed-industries/zed/tree/main/crates/gpui) to crates.io.
+Automated, unofficial releases of [Zed's gpui framework](https://github.com/zed-industries/zed/tree/main/crates/gpui) as GitHub releases.
 
 ## Why?
 
@@ -12,13 +12,14 @@ This project automatically transforms and publishes gpui (and its dependencies) 
 
 ```toml
 [dependencies]
-gpui-unofficial = "0.185"  # Tracks zed release versions
+# Use a specific release
+gpui-unofficial = { git = "https://github.com/gpui-unofficial/gpui-unofficial", tag = "v0.230.1" }
 
-# Or with platform selection:
-gpui-platform-unofficial = { version = "0.185", features = ["macos"] }
+# Or use latest main
+gpui-unofficial = { git = "https://github.com/gpui-unofficial/gpui-unofficial" }
 ```
 
-## Crates Published
+## Crates Included
 
 - `gpui-unofficial` - Main framework
 - `gpui-macros-unofficial` - Derive macros
@@ -31,7 +32,14 @@ gpui-platform-unofficial = { version = "0.185", features = ["macos"] }
 
 ## Versioning
 
-Versions track Zed releases: Zed `v0.185.0` becomes `gpui-unofficial` `0.185.0`.
+Versions track Zed releases: Zed `v0.230.1` becomes `gpui-unofficial` `0.230.1`.
+
+## How It Works
+
+1. GitHub Actions checks for new Zed releases every 6 hours
+2. When a new release is found, it transforms the crates (renaming, updating dependencies)
+3. Creates a PR with the updated crates
+4. On merge, creates a GitHub release with the transformed crates
 
 ## License
 
@@ -44,18 +52,15 @@ This is an unofficial project not affiliated with Zed Industries. For official g
 ## Development
 
 ```bash
-# Transform latest zed release
-cargo xtask transform --zed-tag v0.185.0
+# Transform a zed release
+cargo xtask transform --zed-tag v0.230.1
 
 # Or use a local zed checkout
-cargo xtask transform --zed-tag v0.185.0 --zed-path ../zed
+cargo xtask transform --zed-tag v0.230.1 --zed-path ../zed
+
+# Use path dependencies for local testing
+cargo xtask transform --zed-tag v0.230.1 --zed-path ../zed --local
 
 # Build transformed crates
-cargo build --manifest-path crates/gpui-unofficial/Cargo.toml
-
-# Publish (dry run)
-cargo xtask publish --dry-run
-
-# Publish for real
-cargo xtask publish
+cd crates/gpui-unofficial && cargo build
 ```
