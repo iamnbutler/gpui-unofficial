@@ -1,53 +1,41 @@
 # gpui-unofficial
 
-Automated, unofficial releases of [Zed's gpui framework](https://github.com/zed-industries/zed/tree/main/crates/gpui) as GitHub releases.
-
-## Why?
-
-Zed published gpui to crates.io once in 2024 and hasn't updated it since. The framework continues evolving but isn't available as a versioned crate, forcing projects to use git dependencies.
-
-This project automatically transforms and publishes gpui (and its dependencies) whenever Zed cuts a new release.
+Standalone releases of [Zed's gpui framework](https://github.com/zed-industries/zed/tree/main/crates/gpui) on crates.io, automatically kept in sync with Zed releases.
 
 ## Usage
 
 ```toml
 [dependencies]
-# Use a specific release
-gpui-unofficial = { git = "https://github.com/gpui-unofficial/gpui-unofficial", tag = "v0.230.1" }
-
-# Or use latest main
-gpui-unofficial = { git = "https://github.com/gpui-unofficial/gpui-unofficial" }
+gpui-unofficial = "0.230"
 ```
 
-## Crates Included
+Versions track Zed releases: Zed `v0.230.1` becomes `gpui-unofficial` version `0.230.1`.
 
-- `gpui-unofficial` - Main framework
-- `gpui-macros-unofficial` - Derive macros
-- `gpui-platform-unofficial` - Platform abstraction
-- `gpui-macos-unofficial` - macOS backend
-- `gpui-linux-unofficial` - Linux backend
-- `gpui-windows-unofficial` - Windows backend
-- `gpui-web-unofficial` - Web/WASM backend
-- And supporting crates: `collections-unofficial`, `scheduler-unofficial`, etc.
+## Crates
 
-## Versioning
+| Crate | Description |
+|-------|-------------|
+| `gpui-unofficial` | Main framework |
+| `gpui-macros-unofficial` | Derive macros |
+| `gpui-platform-unofficial` | Platform abstraction |
+| `gpui-macos-unofficial` | macOS backend |
+| `gpui-linux-unofficial` | Linux backend |
+| `gpui-windows-unofficial` | Windows backend |
+| `gpui-web-unofficial` | Web/WASM backend |
 
-Versions track Zed releases: Zed `v0.230.1` becomes `gpui-unofficial` `0.230.1`.
+Plus supporting crates: `collections-unofficial`, `scheduler-unofficial`, `refineable-unofficial`, etc.
 
 ## How It Works
 
 1. GitHub Actions checks for new Zed releases every 6 hours
-2. When a new release is found, it transforms the crates (renaming, updating dependencies)
-3. Creates a PR with the updated crates
-4. On merge, creates a GitHub release with the transformed crates
+2. Transforms the crates (renaming packages, updating dependencies)
+3. Opens a PR, and on merge publishes to crates.io
 
 ## License
 
-All code is from Zed and licensed under Apache-2.0.
+All gpui code is from [Zed](https://github.com/zed-industries/zed) and licensed under Apache-2.0.
 
-## Disclaimer
-
-This is an unofficial project not affiliated with Zed Industries. For official gpui support, see [gpui.rs](https://gpui.rs).
+This is an unofficial project not affiliated with Zed Industries. For official gpui, see [gpui.rs](https://gpui.rs).
 
 ## Development
 
@@ -55,12 +43,15 @@ This is an unofficial project not affiliated with Zed Industries. For official g
 # Transform a zed release
 cargo xtask transform --zed-tag v0.230.1
 
-# Or use a local zed checkout
+# Use a local zed checkout
 cargo xtask transform --zed-tag v0.230.1 --zed-path ../zed
 
-# Use path dependencies for local testing
+# Path dependencies for local testing
 cargo xtask transform --zed-tag v0.230.1 --zed-path ../zed --local
 
-# Build transformed crates
+# Build
 cd crates/gpui-unofficial && cargo build
+
+# Publish dry run
+cargo xtask publish --dry-run
 ```
