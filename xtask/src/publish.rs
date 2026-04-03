@@ -1,22 +1,135 @@
 use anyhow::{bail, Result};
+use std::fs;
 use std::path::Path;
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
+use toml_edit::DocumentMut;
 
-use crate::transform::{CRATE_PUBLISH_ORDER, crate_name_from_path, unofficial_name};
+use crate::transform::{remove_dep_from_features, CRATE_PUBLISH_ORDER, crate_name_from_path, unofficial_name};
 
 /// crates.io allows a burst of 5 new crates, then 1 per 10 minutes.
 /// For existing crates (version updates), the limit is more generous.
 const NEW_CRATE_BURST: usize = 5;
 /// Delay after the burst for new crates (10 min + buffer)
 const NEW_CRATE_DELAY: Duration = Duration::from_secs(630);
-/// Delay between publishes for propagation
-const PROPAGATION_DELAY: Duration = Duration::from_secs(30);
-/// Max retries on rate limit
+/// Delay between publishes for propagation (crates.io sparse index takes 30–90s)
+const PROPAGATION_DELAY: Duration = Duration::from_secs(90);
+/// Backoff between retries when a dependency hasn't propagated yet
+const PROPAGATION_RETRY_WAIT: Duration = Duration::from_secs(60);
+/// Max retries on rate limit or propagation failures
 const MAX_RETRIES: usize = 3;
 /// Initial backoff on rate limit (5 minutes)
 const RATE_LIMIT_BACKOFF: Duration = Duration::from_secs(300);
+
+/// Strip or remove git dependencies from a generated Cargo.toml before publishing.
+///
+/// crates.io rejects any dependency that contains a `git` field, even when a `version`
+/// is also present. This patches the already-generated files in place:
+/// - git+version deps: strips `git`/`rev`/`branch`/`tag`, keeps `version`
+/// - git-only deps (no version): removes the dep entirely and cleans up `[features]`
+fn patch_git_deps_for_publish(crate_dir: &Path) -> Result<()> {
+    let cargo_toml_path = crate_dir.join("Cargo.toml");
+    let content = fs::read_to_string(&cargo_toml_path)?;
+    let mut doc: DocumentMut = content.parse()?;
+    let mut removed_optionals: Vec<String> = Vec::new();
+
+    // Standard top-level sections
+    for section in &["dependencies", "dev-dependencies", "build-dependencies"] {
+        patch_dep_section_git(&mut doc, section, &mut removed_optionals);
+    }
+
+    // Target-specific sections
+    let target_names: Vec<String> = doc
+        .get("target")
+        .and_then(|t| t.as_table_like())
+        .map(|t| t.iter().map(|(k, _)| k.to_string()).collect())
+        .unwrap_or_default();
+
+    for target_name in &target_names {
+        for section in &["dependencies", "dev-dependencies", "build-dependencies"] {
+            let maybe_deps = doc
+                .get("target")
+                .and_then(|t| t.get(target_name))
+                .and_then(|s| s.get(section))
+                .cloned();
+
+            if let Some(deps_item) = maybe_deps {
+                let mut temp_doc = DocumentMut::new();
+                temp_doc.insert(section, deps_item);
+                patch_dep_section_git(&mut temp_doc, section, &mut removed_optionals);
+                if let Some(new_deps) = temp_doc.get(section).cloned() {
+                    if let Some(target_section) = doc
+                        .get_mut("target")
+                        .and_then(|t| t.get_mut(target_name))
+                        .and_then(|s| s.as_table_like_mut())
+                    {
+                        target_section.insert(section, new_deps);
+                    }
+                }
+            }
+        }
+    }
+
+    // Remove removed optional deps from [features]
+    for dep_name in &removed_optionals {
+        remove_dep_from_features(&mut doc, dep_name);
+    }
+
+    fs::write(&cargo_toml_path, doc.to_string())?;
+    Ok(())
+}
+
+/// Patch a single dependency section: strip git fields from git+version deps,
+/// remove git-only deps entirely (tracking optional ones for feature cleanup).
+fn patch_dep_section_git(doc: &mut DocumentMut, section: &str, removed_optionals: &mut Vec<String>) {
+    // Phase 1: identify what to strip and what to remove
+    let mut to_strip: Vec<String> = Vec::new();
+    let mut to_remove: Vec<String> = Vec::new();
+
+    if let Some(deps) = doc.get(section) {
+        if let Some(table) = deps.as_table_like() {
+            for (dep_name, dep) in table.iter() {
+                if let Some(dep_table) = dep.as_table_like() {
+                    if dep_table.get("git").is_some() {
+                        let has_version = dep_table.get("version").is_some();
+                        let is_optional = dep_table
+                            .get("optional")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        if has_version {
+                            to_strip.push(dep_name.to_string());
+                        } else {
+                            if is_optional {
+                                removed_optionals.push(dep_name.to_string());
+                            }
+                            to_remove.push(dep_name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Phase 2: apply changes
+    if let Some(deps) = doc.get_mut(section) {
+        if let Some(table) = deps.as_table_like_mut() {
+            for dep_name in &to_strip {
+                if let Some(dep) = table.get_mut(dep_name) {
+                    if let Some(dep_table) = dep.as_table_like_mut() {
+                        dep_table.remove("git");
+                        dep_table.remove("rev");
+                        dep_table.remove("branch");
+                        dep_table.remove("tag");
+                    }
+                }
+            }
+            for dep_name in &to_remove {
+                table.remove(dep_name);
+            }
+        }
+    }
+}
 
 fn crate_exists_on_registry(name: &str) -> bool {
     Command::new("cargo")
@@ -65,6 +178,10 @@ pub fn run(crates_dir: &str, dry_run: bool) -> Result<()> {
             }
         }
 
+        // Patch any git dependencies in the already-generated Cargo.toml before publishing.
+        // The transform may have baked in git fields that crates.io rejects.
+        patch_git_deps_for_publish(&crate_path)?;
+
         println!(
             "[{}/{}] Publishing {pkg_name}...",
             i + 1,
@@ -92,7 +209,7 @@ pub fn run(crates_dir: &str, dry_run: bool) -> Result<()> {
             let stderr = String::from_utf8_lossy(&output.stderr);
 
             // Version already published — skip
-            if stderr.contains("already exists") {
+            if stderr.contains("already exists") || stderr.contains("already uploaded") {
                 println!("  {pkg_name} already exists on crates.io, skipping.");
                 break;
             }
@@ -112,6 +229,22 @@ pub fn run(crates_dir: &str, dry_run: bool) -> Result<()> {
                     continue;
                 }
                 bail!("Failed to publish {pkg_name} after {MAX_RETRIES} retries (rate limited)");
+            }
+
+            // Dependency not yet propagated to the sparse index — wait and retry
+            if stderr.contains("not found in registry")
+                || stderr.contains("no matching package")
+                || stderr.contains("not available in any registry")
+            {
+                if attempt < MAX_RETRIES {
+                    println!(
+                        "  Dependency not yet propagated, retrying in {PROPAGATION_RETRY_WAIT:?} (attempt {}/{MAX_RETRIES})...",
+                        attempt + 1
+                    );
+                    thread::sleep(PROPAGATION_RETRY_WAIT);
+                    continue;
+                }
+                bail!("Failed to publish {pkg_name} after {MAX_RETRIES} retries (dependency propagation)");
             }
 
             // Some other failure
