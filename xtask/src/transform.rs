@@ -246,10 +246,13 @@ fn transform_cargo_toml(
         }
     }
 
+    // Track optional deps removed because they have no crates.io version (git-only in workspace)
+    let mut removed_optional_deps: Vec<String> = Vec::new();
+
     // Transform dependencies
-    transform_dependencies(&mut doc, "dependencies", workspace_deps, &version, output_dir, use_local_deps)?;
-    transform_dependencies(&mut doc, "dev-dependencies", workspace_deps, &version, output_dir, use_local_deps)?;
-    transform_dependencies(&mut doc, "build-dependencies", workspace_deps, &version, output_dir, use_local_deps)?;
+    transform_dependencies(&mut doc, "dependencies", workspace_deps, &version, output_dir, use_local_deps, &mut removed_optional_deps)?;
+    transform_dependencies(&mut doc, "dev-dependencies", workspace_deps, &version, output_dir, use_local_deps, &mut removed_optional_deps)?;
+    transform_dependencies(&mut doc, "build-dependencies", workspace_deps, &version, output_dir, use_local_deps, &mut removed_optional_deps)?;
 
     // Handle target-specific dependencies
     if let Some(target) = doc.get_mut("target") {
@@ -265,7 +268,7 @@ fn transform_cargo_toml(
                                 let mut temp_doc = DocumentMut::new();
                                 if let Some(deps) = table.get(dep_section).cloned() {
                                     temp_doc.insert(dep_section, deps);
-                                    transform_dependencies(&mut temp_doc, dep_section, workspace_deps, &version, output_dir, use_local_deps)?;
+                                    transform_dependencies(&mut temp_doc, dep_section, workspace_deps, &version, output_dir, use_local_deps, &mut removed_optional_deps)?;
                                     if let Some(new_deps) = temp_doc.get(dep_section).cloned() {
                                         table.insert(dep_section, new_deps);
                                     }
@@ -281,6 +284,12 @@ fn transform_cargo_toml(
     // Remove inspector feature from gpui_macros and gpui
     if original_name == "gpui_macros" || original_name == "gpui" {
         remove_inspector_feature(&mut doc);
+    }
+
+    // Clean up [features] entries that reference removed optional deps.
+    // This is necessary because cargo errors if a feature references a dep that doesn't exist.
+    for dep_name in &removed_optional_deps {
+        remove_dep_from_features(&mut doc, dep_name);
     }
 
     // Remove workspace lints (not supported for standalone crates)
@@ -314,6 +323,7 @@ fn transform_dependencies(
     version: &str,
     _output_dir: &Path,
     use_local_deps: bool,
+    removed_optional_deps: &mut Vec<String>,
 ) -> Result<()> {
     let Some(deps) = doc.get_mut(section) else {
         return Ok(());
@@ -380,7 +390,32 @@ fn transform_dependencies(
                     // External crate - resolve from workspace
                     if let Some(workspace_dep) = workspace_deps.get(&dep_name) {
                         let resolved = resolve_workspace_dep(workspace_dep, dep)?;
-                        deps_table.insert(&dep_name, resolved);
+
+                        // Check if the resolved dep has a usable source (version or path).
+                        // Git-only workspace deps (no version) cannot be published to crates.io.
+                        let has_source = use_local_deps
+                            || resolved.as_table_like().is_some_and(|t| {
+                                t.get("version").is_some() || t.get("path").is_some()
+                            });
+
+                        if has_source {
+                            deps_table.insert(&dep_name, resolved);
+                        } else {
+                            // No crates.io version available — remove the dep.
+                            // If it was optional, track it so we can clean up [features] refs.
+                            let is_optional = dep
+                                .as_table_like()
+                                .and_then(|t| t.get("optional"))
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false);
+                            eprintln!(
+                                "Warning: removing dep `{dep_name}` (git-only workspace dep with no crates.io version)"
+                            );
+                            deps_table.remove(&dep_name);
+                            if is_optional {
+                                removed_optional_deps.push(dep_name);
+                            }
+                        }
                     }
                 }
             }
@@ -411,19 +446,10 @@ fn resolve_workspace_dep(workspace_def: &Item, usage: &Item) -> Result<Item> {
             new_table.insert("package", pkg.into());
         }
 
-        // Copy git fields if present
-        if let Some(git) = table.get("git").and_then(|v| v.as_str()) {
-            new_table.insert("git", git.into());
-        }
-        if let Some(rev) = table.get("rev").and_then(|v| v.as_str()) {
-            new_table.insert("rev", rev.into());
-        }
-        if let Some(branch) = table.get("branch").and_then(|v| v.as_str()) {
-            new_table.insert("branch", branch.into());
-        }
-        if let Some(tag) = table.get("tag").and_then(|v| v.as_str()) {
-            new_table.insert("tag", tag.into());
-        }
+        // Note: git/rev/branch/tag fields are intentionally NOT copied.
+        // crates.io requires version-based deps; cargo publish strips git fields
+        // for deps that have both git+version, and rejects git-only deps entirely.
+        // We detect git-only deps (no version) in transform_dependencies and remove them.
 
         // Copy default-features if present
         if let Some(default_features) = table.get("default-features") {
@@ -500,6 +526,33 @@ fn remove_inspector_feature(doc: &mut DocumentMut) {
                                 table.remove(&name);
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Remove all references to `dep_name` from the [features] table.
+/// Matches both "dep_name" (activates the optional dep) and "dep_name/feature" entries.
+fn remove_dep_from_features(doc: &mut DocumentMut, dep_name: &str) {
+    let Some(features) = doc.get_mut("features") else {
+        return;
+    };
+    let Some(table) = features.as_table_like_mut() else {
+        return;
+    };
+    let feature_names: Vec<_> = table.iter().map(|(k, _)| k.to_string()).collect();
+    for feat_name in feature_names {
+        if let Some(feat_val) = table.get_mut(&feat_name) {
+            if let Some(arr) = feat_val.as_array_mut() {
+                let mut i = 0;
+                while i < arr.len() {
+                    let entry = arr.get(i).and_then(|v| v.as_str()).unwrap_or("");
+                    if entry == dep_name || entry.starts_with(&format!("{dep_name}/")) {
+                        arr.remove(i);
+                    } else {
+                        i += 1;
                     }
                 }
             }
