@@ -226,11 +226,37 @@ fn patch_dep_section_git(doc: &mut DocumentMut, section: &str, removed_optionals
 }
 
 fn crate_exists_on_registry(name: &str) -> bool {
+    // Retry up to 3 times with short backoff to handle crates.io rate limits
+    for attempt in 0..3 {
+        if attempt > 0 {
+            thread::sleep(Duration::from_secs(5 * attempt as u64));
+        }
+        match Command::new("cargo")
+            .args(["search", name, "--limit", "1"])
+            .output()
+        {
+            Ok(o) if !o.stdout.is_empty() => {
+                return String::from_utf8_lossy(&o.stdout).contains(name);
+            }
+            Ok(_) => return false, // Empty result = not found
+            Err(_) => continue,
+        }
+    }
+    false
+}
+
+/// Check if a specific crate version exists on crates.io
+fn crate_version_exists(name: &str, version: &str) -> bool {
+    // Use cargo info which checks the exact version
     Command::new("cargo")
-        .args(["search", name, "--limit", "1"])
+        .args(["search", &format!("{name}"), "--limit", "1"])
         .output()
         .ok()
-        .is_some_and(|o| String::from_utf8_lossy(&o.stdout).contains(name))
+        .is_some_and(|o| {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            // cargo search returns: name = "version"
+            stdout.contains(name) && stdout.contains(version)
+        })
 }
 
 pub fn run(crates_dir: &str, dry_run: bool) -> Result<()> {
@@ -255,6 +281,30 @@ pub fn run(crates_dir: &str, dry_run: bool) -> Result<()> {
 
         if !crate_path.exists() {
             println!("Skipping {pkg_name} (not found)");
+            continue;
+        }
+
+        // Read version from the crate's Cargo.toml
+        let cargo_toml_content = fs::read_to_string(crate_path.join("Cargo.toml"))?;
+        let crate_version = cargo_toml_content
+            .parse::<DocumentMut>()
+            .ok()
+            .and_then(|doc| {
+                doc.get("package")
+                    .and_then(|p| p.get("version"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
+            .unwrap_or_default();
+
+        // Skip early if this exact version is already published — avoids
+        // unnecessary cargo search calls and git-dep patching
+        if !dry_run && crate_version_exists(&pkg_name, &crate_version) {
+            println!(
+                "[{}/{}] {pkg_name}@{crate_version} already on crates.io, skipping.",
+                i + 1,
+                CRATE_PUBLISH_ORDER.len()
+            );
             continue;
         }
 

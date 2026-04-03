@@ -601,18 +601,33 @@ fn remove_inspector_feature(doc: &mut DocumentMut) {
 /// Look up the latest version of a package on crates.io via `cargo search`.
 /// Returns the version string (e.g. "29.0.1") or None if not found.
 pub(crate) fn lookup_crates_io_version(package: &str) -> Option<String> {
-    let output = Command::new("cargo")
-        .args(["search", package, "--limit", "1"])
-        .output()
-        .ok()?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let prefix = format!("{package} = \"");
-    for line in stdout.lines() {
-        if line.starts_with(&prefix) {
-            let after = &line[prefix.len()..];
-            let version = after.split('"').next()?;
-            return Some(version.to_string());
+    // Retry up to 3 times with backoff to handle crates.io rate limits
+    for attempt in 0..3u64 {
+        if attempt > 0 {
+            std::thread::sleep(std::time::Duration::from_secs(5 * attempt));
         }
+        let output = match Command::new("cargo")
+            .args(["search", package, "--limit", "1"])
+            .output()
+        {
+            Ok(o) => o,
+            Err(_) => continue,
+        };
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if stdout.is_empty() && !output.status.success() {
+            // Likely rate limited, retry
+            continue;
+        }
+        let prefix = format!("{package} = \"");
+        for line in stdout.lines() {
+            if line.starts_with(&prefix) {
+                let after = &line[prefix.len()..];
+                let version = after.split('"').next()?;
+                return Some(version.to_string());
+            }
+        }
+        // Got a valid response but package not found
+        return None;
     }
     None
 }
