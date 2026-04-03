@@ -11,8 +11,8 @@ use crate::transform::{CRATE_PUBLISH_ORDER, crate_name_from_path, unofficial_nam
 const NEW_CRATE_BURST: usize = 5;
 /// Delay after the burst for new crates (10 min + buffer)
 const NEW_CRATE_DELAY: Duration = Duration::from_secs(630);
-/// Delay between publishes for propagation
-const PROPAGATION_DELAY: Duration = Duration::from_secs(30);
+/// Delay between publishes for propagation (crates.io sparse index can take ~60s to update)
+const PROPAGATION_DELAY: Duration = Duration::from_secs(90);
 /// Max retries on rate limit
 const MAX_RETRIES: usize = 3;
 /// Initial backoff on rate limit (5 minutes)
@@ -112,6 +112,26 @@ pub fn run(crates_dir: &str, dry_run: bool) -> Result<()> {
                     continue;
                 }
                 bail!("Failed to publish {pkg_name} after {MAX_RETRIES} retries (rate limited)");
+            }
+
+            // Dependency not yet in registry — wait for propagation and retry
+            if stderr.contains("not available in any registry")
+                || stderr.contains("no matching package")
+                || stderr.contains("is not available")
+                || stderr.contains("failed to select a version")
+            {
+                if attempt < MAX_RETRIES {
+                    let wait = Duration::from_secs(60);
+                    println!(
+                        "  Dependency not yet indexed, retrying in {wait:?} (attempt {}/{MAX_RETRIES})...",
+                        attempt + 1
+                    );
+                    eprintln!("{stderr}");
+                    thread::sleep(wait);
+                    continue;
+                }
+                eprintln!("{stderr}");
+                bail!("Failed to publish {pkg_name} after {MAX_RETRIES} retries (dependency not in registry)");
             }
 
             // Some other failure
