@@ -1,3 +1,4 @@
+mod bump;
 mod publish;
 mod transform;
 
@@ -44,6 +45,23 @@ enum Commands {
         crates_dir: String,
     },
 
+    /// Bump version of all crates (for patch releases)
+    BumpVersion {
+        /// New version (e.g., 0.230.2)
+        version: String,
+
+        /// Path to crates directory
+        #[arg(long, default_value = "crates")]
+        crates_dir: String,
+    },
+
+    /// Patch crate Cargo.tomls for publishing (strip git deps) without publishing
+    PatchOnly {
+        /// Path to crates directory
+        #[arg(long, default_value = "crates")]
+        crates_dir: String,
+    },
+
     /// List crates in publish order
     ListCrates,
 }
@@ -60,6 +78,10 @@ fn main() -> Result<()> {
         } => transform::run(&zed_tag, zed_path.as_deref(), &output, local),
 
         Commands::Publish { dry_run, crates_dir } => publish::run(&crates_dir, dry_run),
+
+        Commands::BumpVersion { version, crates_dir } => bump::run(&crates_dir, &version),
+
+        Commands::PatchOnly { crates_dir } => publish::patch_only(&crates_dir),
 
         Commands::ListCrates => {
             for crate_name in transform::CRATE_PUBLISH_ORDER {

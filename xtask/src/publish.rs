@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
-use toml_edit::{DocumentMut, Item};
+use toml_edit::DocumentMut;
 
 use crate::transform::{lookup_crates_io_version, remove_dep_from_features, CRATE_PUBLISH_ORDER, crate_name_from_path, unofficial_name};
 
@@ -204,10 +204,8 @@ fn patch_dep_section_git(doc: &mut DocumentMut, section: &str, removed_optionals
                             .unwrap_or(false);
                         if has_version {
                             to_strip.push(dep_name.to_string());
-                        } else if !is_optional && section == "dependencies" {
-                            // Non-optional core dep with no version — look up on crates.io.
-                            // The zed-industries fork (e.g. wgpu branch="v29") tracks the
-                            // official crates.io release of the same major version.
+                        } else {
+                            // Git-only dep (no version). Try to find a crates.io equivalent.
                             let pkg_name = dep_table
                                 .get("package")
                                 .and_then(|v| v.as_str())
@@ -217,16 +215,17 @@ fn patch_dep_section_git(doc: &mut DocumentMut, section: &str, removed_optionals
                             {
                                 println!("  Replacing git-only dep '{dep_name}' with crates.io {pkg_name}@{ver}");
                                 to_replace.push((dep_name.to_string(), ver));
-                            } else {
-                                // No crates.io equivalent found — remove (will likely fail to compile)
+                            } else if section == "dependencies" && !is_optional {
+                                // Non-optional core dep with no crates.io equivalent — remove
+                                // (will likely fail to compile)
                                 eprintln!("  WARNING: git-only dep '{dep_name}' has no crates.io equivalent; removing");
                                 to_remove.push(dep_name.to_string());
+                            } else {
+                                if is_optional {
+                                    removed_optionals.push(dep_name.to_string());
+                                }
+                                to_remove.push(dep_name.to_string());
                             }
-                        } else {
-                            if is_optional {
-                                removed_optionals.push(dep_name.to_string());
-                            }
-                            to_remove.push(dep_name.to_string());
                         }
                     }
                 }
@@ -251,9 +250,16 @@ fn patch_dep_section_git(doc: &mut DocumentMut, section: &str, removed_optionals
                 table.remove(dep_name);
             }
             for (dep_name, ver) in &to_replace {
-                let mut new_dep = toml_edit::InlineTable::new();
-                new_dep.insert("version", ver.as_str().into());
-                table.insert(dep_name, Item::Value(toml_edit::Value::InlineTable(new_dep)));
+                if let Some(dep) = table.get_mut(dep_name) {
+                    if let Some(dep_table) = dep.as_table_like_mut() {
+                        // Strip git fields and add version, preserving optional/features/etc.
+                        dep_table.remove("git");
+                        dep_table.remove("rev");
+                        dep_table.remove("branch");
+                        dep_table.remove("tag");
+                        dep_table.insert("version", toml_edit::value(ver.as_str()));
+                    }
+                }
             }
         }
     }
@@ -303,6 +309,35 @@ fn crate_version_exists(name: &str, version: &str) -> bool {
             // cargo search returns: name = "version"
             stdout.contains(name) && stdout.contains(version)
         })
+}
+
+/// Run only the Cargo.toml patching step (strip git deps) without publishing.
+/// Useful for verifying that the patched files have no git deps before a real publish.
+pub fn patch_only(crates_dir: &str) -> Result<()> {
+    let crates_path = Path::new(crates_dir);
+    if !crates_path.exists() {
+        bail!("Crates directory not found: {crates_dir}");
+    }
+
+    println!("Patching {} crates (no publish)", CRATE_PUBLISH_ORDER.len());
+
+    for (i, crate_entry) in CRATE_PUBLISH_ORDER.iter().enumerate() {
+        let crate_name = crate_name_from_path(crate_entry);
+        let pkg_name = unofficial_name(crate_name);
+        let crate_path = crates_path.join(&pkg_name);
+
+        if !crate_path.exists() {
+            println!("  Skipping {pkg_name} (not found)");
+            continue;
+        }
+
+        println!("[{}/{}] Patching {pkg_name}...", i + 1, CRATE_PUBLISH_ORDER.len());
+        patch_git_deps_for_publish(&crate_path)?;
+        patch_readme_for_publish(&crate_path, crate_name);
+    }
+
+    println!("\nPatch complete! Inspect crates/ to verify.");
+    Ok(())
 }
 
 pub fn run(crates_dir: &str, dry_run: bool) -> Result<()> {
