@@ -85,7 +85,7 @@ windows = { version = "0.61", features = [
 windows-core = { version = "0.61" }
 windows-numerics = "0.2"
 windows-registry = "0.5"
-scap = { version = "0.0.8-zed", package = "zed-scap", git = "https://github.com/zed-industries/scap", rev = "4afea48c3b002197176fb19cd0f9b180dd36eaac", default-features = false, optional = true }
+scap = { version = "0.0.8-zed", package = "zed-scap", default-features = false, optional = true }
 
 [target.'cfg(target_os = "windows")'.build-dependencies]
 windows-registry = "0.5"

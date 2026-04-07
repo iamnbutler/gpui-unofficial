@@ -18,9 +18,7 @@ test-support = [
     "collections/test-support",
     "http_client/test-support",
     "wayland",
-    "x11",
-    "proptest",
-]
+    "x11"]
 leak-detection = ["backtrace"]
 wayland = [
     "bitflags",
@@ -66,7 +64,6 @@ num_cpus = "1.13"
 parking = "2.0.0"
 parking_lot = { version = "0.12.1" }
 postage = { version = "0.5", features = ["futures-traits"] }
-proptest = { git = "https://github.com/proptest-rs/proptest", rev = "3dca198a8fef1b32e3a66f1e1897c955b4dc5b5b", features = ["attr-macro"], optional = true }
 chrono = { version = "0.4", features = ["serde"] }
 profiling = { version = "1" }
 rand = { version = "0.9" }
@@ -132,7 +129,7 @@ metal = { version = "0.33" }
 pathfinder_geometry = "0.5"
 
 [target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "windows"))'.dependencies]
-scap = { version = "0.0.8-zed", package = "zed-scap", git = "https://github.com/zed-industries/scap", rev = "4afea48c3b002197176fb19cd0f9b180dd36eaac", default-features = false, optional = true }
+scap = { version = "0.0.8-zed", package = "zed-scap", default-features = false, optional = true }
 
 
 
@@ -150,7 +147,6 @@ rand = { version = "0.9" }
 scheduler = { package = "scheduler-gpui-unofficial", version = "0.230.2", features = ["test-support"] }
 unicode-segmentation = { version = "1.10" }
 gpui_util = { package = "gpui-util-gpui-unofficial", version = "0.230.2" }
-proptest = { git = "https://github.com/proptest-rs/proptest", rev = "3dca198a8fef1b32e3a66f1e1897c955b4dc5b5b", features = ["attr-macro"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
 http_client = { package = "http-client-gpui-unofficial", version = "0.230.2", features = ["test-support"] }
