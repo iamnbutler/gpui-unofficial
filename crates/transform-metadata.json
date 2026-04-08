@@ -1,5 +1,4 @@
 {
-  "bumped_to": "0.230.2",
   "crates": [
     "gpui_util",
     "collections",
@@ -26,7 +25,7 @@
     "gpui_web",
     "gpui_platform"
   ],
-  "transformed_at": "2026-04-03T01:26:03.608390+00:00",
-  "zed_commit": "bf3a14350a4fa4b67747afe2e50128fb8fea4fa3",
-  "zed_tag": "v0.230.1"
+  "transformed_at": "2026-04-08T13:39:28.802220243+00:00",
+  "zed_commit": "53a3365bcf6b1aa17389b21456b6010f294f788f",
+  "zed_tag": "v0.230.2"
 }

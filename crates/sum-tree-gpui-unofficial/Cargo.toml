@@ -16,12 +16,10 @@ rayon = { version = "1.8" }
 log = { version = "0.4.16", features = ["kv_unstable_serde", "serde"] }
 ztracing = { package = "ztracing-gpui-unofficial", version = "0.230.2" }
 tracing = { version = "0.1.40" }
-proptest = { git = "https://github.com/proptest-rs/proptest", rev = "3dca198a8fef1b32e3a66f1e1897c955b4dc5b5b", features = ["attr-macro"], optional = true }
 
 [dev-dependencies]
 ctor = { version = "0.4.0" }
 rand = { version = "0.9" }
-proptest = { git = "https://github.com/proptest-rs/proptest", rev = "3dca198a8fef1b32e3a66f1e1897c955b4dc5b5b", features = ["attr-macro"] }
 zlog = { package = "zlog-gpui-unofficial", version = "0.230.2" }
 
 
@@ -29,6 +27,6 @@ zlog = { package = "zlog-gpui-unofficial", version = "0.230.2" }
 ignored = ["tracing"]
 
 [features]
-test-support = ["proptest"]
+test-support = []
 
 [workspace]
