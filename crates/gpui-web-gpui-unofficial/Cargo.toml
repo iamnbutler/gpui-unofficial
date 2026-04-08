@@ -1,6 +1,6 @@
 [package]
 name = "gpui-web-gpui-unofficial"
-version = "0.230.2"
+version = "0.231.1"
 edition = "2024"
 license = "Apache-2.0"
 autoexamples = false
@@ -15,10 +15,10 @@ multithreaded = ["dep:wasm_thread"]
 path = "src/gpui_web.rs"
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-gpui = { package = "gpui-unofficial", version = "0.230.2" }
+gpui = { package = "gpui-unofficial", version = "0.231.1" }
 parking_lot = { version = "0.12.1", features = ["nightly"] }
-gpui_wgpu = { package = "gpui-wgpu-gpui-unofficial", version = "0.230.2" }
-http_client = { package = "http-client-gpui-unofficial", version = "0.230.2" }
+gpui_wgpu = { package = "gpui-wgpu-gpui-unofficial", version = "0.231.1" }
+http_client = { package = "http-client-gpui-unofficial", version = "0.231.1" }
 anyhow = { version = "1.0.86" }
 futures = { version = "0.3" }
 log = { version = "0.4.16", features = ["kv_unstable_serde", "serde"] }

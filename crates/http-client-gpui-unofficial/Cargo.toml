@@ -1,6 +1,6 @@
 [package]
 name = "http-client-gpui-unofficial"
-version = "0.230.2"
+version = "0.231.1"
 edition = "2024"
 license = "Apache-2.0"
 description = "A HTTP client library for Zed and GPUI"
@@ -37,7 +37,7 @@ serde_urlencoded = { version = "0.7" }
 url = { version = "2.2" }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-util = { package = "util-gpui-unofficial", version = "0.230.2" }
+util = { package = "util-gpui-unofficial", version = "0.231.1" }
 async-fs = { version = "2.1" }
 async-tar = { version = "0.5.1" }
 sha2 = { version = "0.10" }
