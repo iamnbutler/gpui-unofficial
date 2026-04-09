@@ -1,6 +1,6 @@
 [package]
 name = "zlog-gpui-unofficial"
-version = "0.230.2"
+version = "0.231.1"
 edition = "2024"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/iamnbutler/gpui-unofficial"
@@ -13,7 +13,7 @@ path = "src/zlog.rs"
 default = []
 
 [dependencies]
-collections = { package = "collections-gpui-unofficial", version = "0.230.2" }
+collections = { package = "collections-gpui-unofficial", version = "0.231.1" }
 chrono = { version = "0.4", features = ["serde"] }
 log = { version = "0.4.16", features = ["kv_unstable_serde", "serde"] }
 anyhow = { version = "1.0.86" }

@@ -1,6 +1,6 @@
 [package]
 name = "gpui-windows-gpui-unofficial"
-version = "0.230.2"
+version = "0.231.1"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/iamnbutler/gpui-unofficial"
@@ -15,11 +15,11 @@ test-support = ["gpui/test-support"]
 screen-capture = ["gpui/screen-capture", "scap"]
 
 [dependencies]
-gpui = { package = "gpui-unofficial", version = "0.230.2" }
+gpui = { package = "gpui-unofficial", version = "0.231.1" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 anyhow = { version = "1.0.86" }
-collections = { package = "collections-gpui-unofficial", version = "0.230.2" }
+collections = { package = "collections-gpui-unofficial", version = "0.231.1" }
 etagere = "0.2"
 futures = { version = "0.3" }
 image = { version = "0.25.1" }
@@ -29,7 +29,7 @@ parking_lot = { version = "0.12.1" }
 rand = { version = "0.9" }
 raw-window-handle = "0.6"
 smallvec = { version = "1.6", features = ["union", "const_new"] }
-util = { package = "util-gpui-unofficial", version = "0.230.2" }
+util = { package = "util-gpui-unofficial", version = "0.231.1" }
 uuid = { version = "1.1.2", features = ["v4", "v5", "v7", "serde"] }
 windows = { version = "0.61", features = [
     "Foundation_Numerics",
@@ -46,6 +46,7 @@ windows = { version = "0.61", features = [
     "Win32_Graphics_Direct3D_Fxc",
     "Win32_Graphics_DirectComposition",
     "Win32_Graphics_DirectWrite",
+    "Win32_Graphics_DirectManipulation",
     "Win32_Graphics_Dwm",
     "Win32_Graphics_Dxgi",
     "Win32_Graphics_Dxgi_Common",
@@ -60,6 +61,7 @@ windows = { version = "0.61", features = [
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",
     "Win32_System_Console",
+    "Win32_System_Diagnostics_Debug",
     "Win32_System_DataExchange",
     "Win32_System_IO",
     "Win32_System_LibraryLoader",
@@ -77,6 +79,7 @@ windows = { version = "0.61", features = [
     "Win32_UI_HiDpi",
     "Win32_UI_Input_Ime",
     "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Input_Pointer",
     "Win32_UI_Shell",
     "Win32_UI_Shell_Common",
     "Win32_UI_Shell_PropertiesSystem",
@@ -85,7 +88,7 @@ windows = { version = "0.61", features = [
 windows-core = { version = "0.61" }
 windows-numerics = "0.2"
 windows-registry = "0.5"
-scap = { version = "0.0.8-zed", package = "zed-scap", git = "https://github.com/zed-industries/scap", rev = "4afea48c3b002197176fb19cd0f9b180dd36eaac", default-features = false, optional = true }
+scap = { version = "0.0.8-zed", package = "zed-scap", default-features = false, optional = true }
 
 [target.'cfg(target_os = "windows")'.build-dependencies]
 windows-registry = "0.5"

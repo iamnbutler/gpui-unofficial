@@ -1,9 +1,9 @@
 [package]
 name = "collections-gpui-unofficial"
-version = "0.230.2"
+version = "0.231.1"
 edition = "2024"
 license = "Apache-2.0"
-description = "Standard collection type re-exports used by Zed and GPUI"
+description = "Standard collection types used by Zed and GPUI"
 repository = "https://github.com/iamnbutler/gpui-unofficial"
 
 [lib]

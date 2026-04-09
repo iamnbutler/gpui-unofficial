@@ -1,6 +1,6 @@
 [package]
 name = "http-client-tls-gpui-unofficial"
-version = "0.230.2"
+version = "0.231.1"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/iamnbutler/gpui-unofficial"
