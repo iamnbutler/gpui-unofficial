@@ -17,6 +17,7 @@ test-support = [
     "leak-detection",
     "collections/test-support",
     "http_client/test-support",
+    "dep:proptest",
     "wayland",
     "x11"]
 leak-detection = ["backtrace"]
@@ -66,6 +67,7 @@ parking_lot = { version = "0.12.1" }
 postage = { version = "0.5", features = ["futures-traits"] }
 chrono = { version = "0.4", features = ["serde"] }
 profiling = { version = "1" }
+proptest = { version = "1", optional = true }
 rand = { version = "0.9" }
 raw-window-handle = "0.6"
 regex = { version = "1.5" }
@@ -142,6 +144,7 @@ windows = { version = "0.61", features = ["Win32_Foundation"] }
 [dev-dependencies]
 backtrace = { version = "0.3" }
 collections = { package = "collections-gpui-unofficial", version = "0.231.1", features = ["test-support"] }
+proptest = { version = "1" }
 env_logger = { version = "0.11" }
 gpui_platform = { package = "gpui-platform-gpui-unofficial", version = "0.231.1", features = ["font-kit"] }
 gpui_util = { package = "gpui-util-gpui-unofficial", version = "0.231.1" }

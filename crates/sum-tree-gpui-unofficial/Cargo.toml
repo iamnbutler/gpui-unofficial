@@ -13,12 +13,14 @@ doctest = false
 [dependencies]
 heapless = { version = "0.9.2" }
 rayon = { version = "1.8" }
+proptest = { version = "1", optional = true }
 log = { version = "0.4.16", features = ["kv_unstable_serde", "serde"] }
 ztracing = { package = "ztracing-gpui-unofficial", version = "0.231.1" }
 tracing = { version = "0.1.40" }
 
 [dev-dependencies]
 ctor = { version = "0.4.0" }
+proptest = { version = "1" }
 rand = { version = "0.9" }
 zlog = { package = "zlog-gpui-unofficial", version = "0.231.1" }
 
@@ -27,6 +29,6 @@ zlog = { package = "zlog-gpui-unofficial", version = "0.231.1" }
 ignored = ["tracing"]
 
 [features]
-test-support = []
+test-support = ["dep:proptest"]
 
 [workspace]
