@@ -289,6 +289,11 @@ fn transform_cargo_toml(
         remove_inspector_feature(&mut doc);
     }
 
+    // Add proptest dependency to crates that need it for tests
+    if original_name == "gpui" || original_name == "sum_tree" {
+        add_proptest_dependency(&mut doc);
+    }
+
     // Remove workspace lints (not supported for standalone crates)
     doc.remove("lints");
 
@@ -591,6 +596,56 @@ fn remove_inspector_feature(doc: &mut DocumentMut) {
                                 table.remove(&name);
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Add proptest as a dependency for crates that need it for tests.
+/// This is needed because proptest is used by gpui and sum_tree tests but
+/// may not be properly resolved from workspace dependencies.
+fn add_proptest_dependency(doc: &mut DocumentMut) {
+    // Add to [dependencies] as optional
+    if let Some(deps) = doc.get_mut("dependencies") {
+        if let Some(table) = deps.as_table_like_mut() {
+            if !table.contains_key("proptest") {
+                let mut dep = toml_edit::InlineTable::new();
+                dep.insert("version", "1".into());
+                dep.insert("optional", true.into());
+                table.insert("proptest", Item::Value(Value::InlineTable(dep)));
+            }
+        }
+    }
+
+    // Add to [dev-dependencies]
+    if let Some(deps) = doc.get_mut("dev-dependencies") {
+        if let Some(table) = deps.as_table_like_mut() {
+            if !table.contains_key("proptest") {
+                let mut dep = toml_edit::InlineTable::new();
+                dep.insert("version", "1".into());
+                table.insert("proptest", Item::Value(Value::InlineTable(dep)));
+            }
+        }
+    } else {
+        // Create dev-dependencies section if it doesn't exist
+        let mut dev_deps = toml_edit::Table::new();
+        let mut dep = toml_edit::InlineTable::new();
+        dep.insert("version", "1".into());
+        dev_deps.insert("proptest", Item::Value(Value::InlineTable(dep)));
+        doc.insert("dev-dependencies", Item::Table(dev_deps));
+    }
+
+    // Add dep:proptest to test-support feature
+    if let Some(features) = doc.get_mut("features") {
+        if let Some(table) = features.as_table_like_mut() {
+            if let Some(test_support) = table.get_mut("test-support") {
+                if let Some(arr) = test_support.as_array_mut() {
+                    // Check if dep:proptest is already there
+                    let has_proptest = arr.iter().any(|v| v.as_str() == Some("dep:proptest"));
+                    if !has_proptest {
+                        arr.push("dep:proptest");
                     }
                 }
             }

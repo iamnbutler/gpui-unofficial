@@ -2,3 +2,4 @@
 /crates/*/target
 Cargo.lock
 .DS_Store
+.idea
