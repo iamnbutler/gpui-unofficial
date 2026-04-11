@@ -1,6 +1,6 @@
 [package]
 name = "util-macros-gpui-unofficial"
-version = "0.231.1"
+version = "0.231.2"
 edition = "2024"
 license = "Apache-2.0"
 description = "Utility macros for Zed"
@@ -14,7 +14,7 @@ doctest = false
 [dependencies]
 quote = { version = "1.0.9" }
 syn = { version = "2.0.101", features = ["full", "extra-traits", "visit-mut"] }
-perf = { package = "perf-gpui-unofficial", version = "0.231.1" }
+perf = { package = "perf-gpui-unofficial", version = "0.231.2" }
 
 [features]
 perf-enabled = []

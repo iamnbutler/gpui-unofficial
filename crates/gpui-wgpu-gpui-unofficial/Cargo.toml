@@ -1,6 +1,6 @@
 [package]
 name = "gpui-wgpu-gpui-unofficial"
-version = "0.231.1"
+version = "0.231.2"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/iamnbutler/gpui-unofficial"
@@ -14,10 +14,10 @@ default = []
 font-kit = ["dep:font-kit"]
 
 [dependencies]
-gpui = { package = "gpui-unofficial", version = "0.231.1" }
+gpui = { package = "gpui-unofficial", version = "0.231.2" }
 anyhow = { version = "1.0.86" }
 bytemuck = "1"
-collections = { package = "collections-gpui-unofficial", version = "0.231.1" }
+collections = { package = "collections-gpui-unofficial", version = "0.231.2" }
 cosmic-text = "0.17.0"
 etagere = "0.2"
 itertools = { version = "0.14.0" }
@@ -27,7 +27,7 @@ profiling = { version = "1" }
 raw-window-handle = "0.6"
 smallvec = { version = "1.6", features = ["union", "const_new"] }
 swash = "0.2.6"
-gpui_util = { package = "gpui-util-gpui-unofficial", version = "0.231.1" }
+gpui_util = { package = "gpui-util-gpui-unofficial", version = "0.231.2" }
 wgpu = { version = "29.0.1" }
 
 # Optional: only needed on platforms with multiple font sources (e.g. Linux)

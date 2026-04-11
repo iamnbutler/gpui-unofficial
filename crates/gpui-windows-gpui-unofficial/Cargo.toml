@@ -1,6 +1,6 @@
 [package]
 name = "gpui-windows-gpui-unofficial"
-version = "0.231.1"
+version = "0.231.2"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/iamnbutler/gpui-unofficial"
@@ -15,11 +15,11 @@ test-support = ["gpui/test-support"]
 screen-capture = ["gpui/screen-capture", "scap"]
 
 [dependencies]
-gpui = { package = "gpui-unofficial", version = "0.231.1" }
+gpui = { package = "gpui-unofficial", version = "0.231.2" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 anyhow = { version = "1.0.86" }
-collections = { package = "collections-gpui-unofficial", version = "0.231.1" }
+collections = { package = "collections-gpui-unofficial", version = "0.231.2" }
 etagere = "0.2"
 futures = { version = "0.3" }
 image = { version = "0.25.1" }
@@ -29,7 +29,7 @@ parking_lot = { version = "0.12.1" }
 rand = { version = "0.9" }
 raw-window-handle = "0.6"
 smallvec = { version = "1.6", features = ["union", "const_new"] }
-util = { package = "util-gpui-unofficial", version = "0.231.1" }
+util = { package = "util-gpui-unofficial", version = "0.231.2" }
 uuid = { version = "1.1.2", features = ["v4", "v5", "v7", "serde"] }
 windows = { version = "0.61", features = [
     "Foundation_Numerics",

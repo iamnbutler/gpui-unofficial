@@ -1,6 +1,6 @@
 [package]
 name = "collections-gpui-unofficial"
-version = "0.231.1"
+version = "0.231.2"
 edition = "2024"
 license = "Apache-2.0"
 description = "Standard collection types used by Zed and GPUI"

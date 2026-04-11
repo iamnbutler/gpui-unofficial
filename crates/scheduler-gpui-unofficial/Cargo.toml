@@ -1,6 +1,6 @@
 [package]
 name = "scheduler-gpui-unofficial"
-version = "0.231.1"
+version = "0.231.2"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/iamnbutler/gpui-unofficial"
