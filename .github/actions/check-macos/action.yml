@@ -1,0 +1,35 @@
+name: Check macOS
+description: Cargo check for macOS
+
+inputs:
+  release_branch:
+    description: 'Release branch to check'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout release branch
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.release_branch }}
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: crates/gpui-unofficial
+
+    - name: Check gpui-unofficial
+      shell: bash
+      run: |
+        cd crates/gpui-unofficial
+        cargo check
+
+    - name: Check gpui-macos
+      shell: bash
+      run: |
+        cd crates/gpui-macos-gpui-unofficial
+        cargo check
