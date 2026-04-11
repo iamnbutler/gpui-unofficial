@@ -1,0 +1,50 @@
+name: Check Linux
+description: Cargo check with Linux system dependencies
+
+inputs:
+  release_branch:
+    description: 'Release branch to check'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout release branch
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.release_branch }}
+
+    - name: Install system deps
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libwayland-dev \
+          libxkbcommon-x11-dev \
+          libx11-xcb-dev \
+          libxcb-shape0-dev \
+          libxcb-xfixes0-dev \
+          libvulkan-dev \
+          libssl-dev \
+          pkg-config \
+          clang
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: crates/gpui-unofficial
+
+    - name: Check gpui-unofficial
+      shell: bash
+      run: |
+        cd crates/gpui-unofficial
+        cargo check --features wayland,x11
+
+    - name: Check gpui-linux
+      shell: bash
+      run: |
+        cd crates/gpui-linux-gpui-unofficial
+        cargo check
