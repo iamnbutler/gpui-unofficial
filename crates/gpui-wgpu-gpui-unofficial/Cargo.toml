@@ -28,6 +28,7 @@ raw-window-handle = "0.6"
 smallvec = { version = "1.6", features = ["union", "const_new"] }
 swash = "0.2.6"
 gpui_util = { package = "gpui-util-gpui-unofficial", version = "0.231.1" }
+wgpu = { version = "29.0.1" }
 
 # Optional: only needed on platforms with multiple font sources (e.g. Linux)
 # WARNING: If you change this, you must also publish a new version of zed-font-kit to crates.io

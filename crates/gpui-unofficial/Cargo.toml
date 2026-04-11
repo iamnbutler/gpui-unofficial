@@ -18,7 +18,7 @@ test-support = [
     "collections/test-support",
     "http_client/test-support",
     "wayland",
-    "x11"]
+    "x11", "dep:proptest"]
 leak-detection = ["backtrace"]
 wayland = [
     "bitflags",
@@ -101,6 +101,7 @@ pollster = { version = "0.4.0" }
 url = { version = "2.2" }
 uuid = { version = "1.1.2", features = ["v4", "v5", "v7", "serde"] }
 web-time = { version = "1.1.0" }
+proptest = { version = "1", optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 getrandom = { version = "0.3.4", features = ["wasm_js"] }
@@ -149,6 +150,7 @@ lyon = { version = "1.0", features = ["extra"] }
 rand = { version = "0.9" }
 scheduler = { package = "scheduler-gpui-unofficial", version = "0.231.1", features = ["test-support"] }
 unicode-segmentation = { version = "1.10" }
+proptest = { version = "1" }
 
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
 http_client = { package = "http-client-gpui-unofficial", version = "0.231.1", features = ["test-support"] }
