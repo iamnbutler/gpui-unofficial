@@ -2,13 +2,20 @@ name: Sync Zed Releases
 
 on:
   schedule:
-    - cron: '0 1,7,13,19 * * *'  # At 1am, 7am, 1pm, 7pm UTC
+    - cron: '0 1,7,13,19 * * *'  # Every 6 hours
   workflow_dispatch:
     inputs:
       zed_tag:
-        description: 'Specific zed tag to sync (e.g., v0.185.0)'
+        description: 'Specific zed tag to sync (e.g., v0.231.2)'
         required: false
         type: string
+
+concurrency:
+  group: sync-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUSTFLAGS: -Dwarnings
 
 jobs:
   check-release:
@@ -35,16 +42,11 @@ jobs:
           LATEST_TAG=$(gh release view --repo zed-industries/zed --json tagName -q '.tagName')
           echo "Latest zed tag: $LATEST_TAG"
 
-          # Check if we've already processed this version
-          if [ -f crates/transform-metadata.json ]; then
-            CURRENT_TAG=$(jq -r '.zed_tag' crates/transform-metadata.json)
-            echo "Current tag: $CURRENT_TAG"
-
-            if [ "$LATEST_TAG" = "$CURRENT_TAG" ]; then
-              echo "Already up to date with $LATEST_TAG"
-              echo "new_release=false" >> $GITHUB_OUTPUT
-              exit 0
-            fi
+          # Check if we already have this release branch
+          if git ls-remote --heads origin "release/${LATEST_TAG#v}" | grep -q .; then
+            echo "Already have release branch for $LATEST_TAG"
+            echo "new_release=false" >> $GITHUB_OUTPUT
+            exit 0
           fi
 
           echo "New release found: $LATEST_TAG"
@@ -55,56 +57,114 @@ jobs:
     needs: check-release
     if: needs.check-release.outputs.new_release == 'true'
     runs-on: ubuntu-latest
+    outputs:
+      release_branch: ${{ steps.transform.outputs.release_branch }}
+      version: ${{ steps.transform.outputs.version }}
     permissions:
       contents: write
-      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Clone zed
-        run: |
-          git clone --depth=1 --branch ${{ needs.check-release.outputs.zed_tag }} \
-            https://github.com/zed-industries/zed.git /tmp/zed
-
-      - name: Transform crates (local deps for build check)
-        run: |
-          cargo run -p xtask -- transform \
-            --zed-tag ${{ needs.check-release.outputs.zed_tag }} \
-            --zed-path /tmp/zed \
-            --local
-
-      - name: Build check
-        run: |
-          cd crates/gpui-unofficial
-          cargo check
-
-      - name: Re-transform crates (version deps for publishing)
-        run: |
-          cargo run -p xtask -- transform \
-            --zed-tag ${{ needs.check-release.outputs.zed_tag }} \
-            --zed-path /tmp/zed
-
-      - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v6
+      - name: Transform crates
+        id: transform
+        uses: ./.github/actions/transform
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "Update to zed ${{ needs.check-release.outputs.zed_tag }}"
-          title: "Update to zed ${{ needs.check-release.outputs.zed_tag }}"
-          body: |
-            Automated update to track zed release ${{ needs.check-release.outputs.zed_tag }}.
+          zed_tag: ${{ needs.check-release.outputs.zed_tag }}
 
-            ## Changes
-            - Transformed crates from zed ${{ needs.check-release.outputs.zed_tag }}
-            - Updated versions to match zed release
+  check-linux:
+    needs: transform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Linux
+        uses: ./.github/actions/check-linux
+        with:
+          release_branch: ${{ needs.transform.outputs.release_branch }}
 
-            ## Build Status
-            - [x] Build check passed (with path deps)
-            - [ ] Ready for release
-          branch: update-${{ needs.check-release.outputs.zed_tag }}
-          delete-branch: true
+  check-macos:
+    needs: transform
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check macOS
+        uses: ./.github/actions/check-macos
+        with:
+          release_branch: ${{ needs.transform.outputs.release_branch }}
+
+  check-windows:
+    needs: transform
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Windows
+        uses: ./.github/actions/check-windows
+        with:
+          release_branch: ${{ needs.transform.outputs.release_branch }}
+
+  build-examples-linux:
+    needs: [transform, check-linux, check-macos, check-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build examples
+        uses: ./.github/actions/build-examples
+        with:
+          release_branch: ${{ needs.transform.outputs.release_branch }}
+
+  build-examples-macos:
+    needs: [transform, check-linux, check-macos, check-windows]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build examples
+        uses: ./.github/actions/build-examples
+        with:
+          release_branch: ${{ needs.transform.outputs.release_branch }}
+
+  build-examples-windows:
+    needs: [transform, check-linux, check-macos, check-windows]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build examples
+        uses: ./.github/actions/build-examples
+        with:
+          release_branch: ${{ needs.transform.outputs.release_branch }}
+
+  publish:
+    needs: [check-release, transform, build-examples-linux, build-examples-macos, build-examples-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish
+        uses: ./.github/actions/publish
+        with:
+          release_branch: ${{ needs.transform.outputs.release_branch }}
+          version: ${{ needs.transform.outputs.version }}
+          zed_tag: ${{ needs.check-release.outputs.zed_tag }}
+          cargo_token: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+  on-failure:
+    needs: [check-release, transform, check-linux, check-macos, check-windows, build-examples-linux, build-examples-macos, build-examples-windows, publish]
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Create failure issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = '${{ needs.check-release.outputs.zed_tag }}';
+            const runUrl = '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}';
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Release failed for ${tag}`,
+              body: `Automated release for zed ${tag} failed.\n\n**Run:** ${runUrl}\n\nPlease investigate and re-trigger manually if needed.`,
+              labels: ['release-failure', 'automated']
+            });
