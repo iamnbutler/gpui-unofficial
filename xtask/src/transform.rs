@@ -451,10 +451,13 @@ fn transform_dependencies(
                                         .and_then(|v| v.as_str())
                                         .unwrap_or(&dep_name)
                                         .to_string();
-                                    lookup_crates_io_version(&pkg).map(|ver| {
+                                    // Try known fallbacks first, then lookup
+                                    let version = known_git_dep_version(&pkg)
+                                        .or_else(|| lookup_crates_io_version(&pkg));
+                                    version.map(|ver| {
                                         println!("  Resolved git-only dep '{dep_name}' to crates.io {pkg}@{ver}");
                                         let mut t = toml_edit::InlineTable::new();
-                                        t.insert("version", ver.as_str().into());
+                                        t.insert("version", ver.into());
                                         Item::Value(Value::InlineTable(t))
                                     })
                                 } else {
@@ -783,6 +786,15 @@ fn add_custom_cfg_lints(doc: &mut DocumentMut, crate_name: &str) {
     lints_table.insert("rust", Item::Value(toml_edit::Value::InlineTable(rust_lints)));
 
     doc.insert("lints", Item::Table(lints_table));
+}
+
+/// Known git-only deps that have crates.io equivalents.
+/// Fallback when cargo search fails (e.g., rate limits, network issues).
+fn known_git_dep_version(package: &str) -> Option<String> {
+    match package {
+        "wgpu" => Some("29.0.1".to_string()),
+        _ => None,
+    }
 }
 
 /// Look up the latest version of a package on crates.io via `cargo search`.
