@@ -297,10 +297,8 @@ fn transform_cargo_toml(
     // Remove workspace lints (not supported for standalone crates)
     doc.remove("lints");
 
-    // Add custom cfg lints for ztracing crate
-    if original_name == "ztracing" {
-        add_ztracing_lints(&mut doc);
-    }
+    // Add custom cfg lints for crates that need them
+    add_custom_cfg_lints(&mut doc, original_name);
 
     // Add empty [workspace] to make crate independent
     doc.insert("workspace", Item::Table(toml_edit::Table::new()));
@@ -658,19 +656,26 @@ fn add_proptest_dependency(doc: &mut DocumentMut) {
     }
 }
 
-/// Add lints configuration for ztracing crate to allow custom cfg attributes.
-fn add_ztracing_lints(doc: &mut DocumentMut) {
-    // Create [lints.rust] with check-cfg for custom attributes
-    let mut rust_lints = toml_edit::InlineTable::new();
+/// Add lints configuration for crates that use custom cfg attributes.
+fn add_custom_cfg_lints(doc: &mut DocumentMut, crate_name: &str) {
+    let check_cfgs: &[&str] = match crate_name {
+        "ztracing" => &["cfg(ztracing)", "cfg(ztracing_with_memory)"],
+        "util_macros" => &["cfg(perf_enabled)"],
+        "gpui_macros" => &["cfg(feature, values(\"inspector\"))"],
+        _ => return, // No custom cfgs needed
+    };
 
+    // Create [lints.rust] with check-cfg for custom attributes
     let mut check_cfg_arr = toml_edit::Array::new();
-    check_cfg_arr.push("cfg(ztracing)");
-    check_cfg_arr.push("cfg(ztracing_with_memory)");
+    for cfg in check_cfgs {
+        check_cfg_arr.push(*cfg);
+    }
 
     let mut unexpected_cfgs = toml_edit::InlineTable::new();
     unexpected_cfgs.insert("level", "warn".into());
     unexpected_cfgs.insert("check-cfg", toml_edit::Value::Array(check_cfg_arr));
 
+    let mut rust_lints = toml_edit::InlineTable::new();
     rust_lints.insert("unexpected_cfgs", toml_edit::Value::InlineTable(unexpected_cfgs));
 
     let mut lints_table = toml_edit::Table::new();
