@@ -175,121 +175,9 @@ jobs:
           cd crates/gpui-unofficial
           cargo check
 
-  build-examples-linux:
-    needs: [check-release, check-linux, check-macos, check-windows]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Install system deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwayland-dev \
-            libxkbcommon-x11-dev \
-            libx11-xcb-dev \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev \
-            libvulkan-dev \
-            libssl-dev \
-            libfontconfig1-dev \
-            pkg-config
-
-      - name: Clone zed
-        run: |
-          git clone --depth=1 --branch ${{ needs.check-release.outputs.zed_tag }} \
-            https://github.com/zed-industries/zed.git /tmp/zed
-
-      - name: Build xtask
-        run: cargo build -p xtask --release
-
-      - name: Transform crates (local deps)
-        run: |
-          cargo run -p xtask --release -- transform \
-            --zed-tag ${{ needs.check-release.outputs.zed_tag }} \
-            --zed-path /tmp/zed \
-            --local
-
-      - name: Build examples
-        run: |
-          cd crates/gpui-unofficial
-          cargo build --examples
-
-  build-examples-macos:
-    needs: [check-release, check-linux, check-macos, check-windows]
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Clone zed
-        run: |
-          git clone --depth=1 --branch ${{ needs.check-release.outputs.zed_tag }} \
-            https://github.com/zed-industries/zed.git /tmp/zed
-
-      - name: Build xtask
-        run: cargo build -p xtask --release
-
-      - name: Transform crates (local deps)
-        run: |
-          cargo run -p xtask --release -- transform \
-            --zed-tag ${{ needs.check-release.outputs.zed_tag }} \
-            --zed-path /tmp/zed \
-            --local
-
-      - name: Build examples
-        run: |
-          cd crates/gpui-unofficial
-          cargo build --examples
-
-  build-examples-windows:
-    needs: [check-release, check-linux, check-macos, check-windows]
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Clone zed
-        shell: bash
-        run: |
-          git clone --depth=1 --branch ${{ needs.check-release.outputs.zed_tag }} \
-            https://github.com/zed-industries/zed.git /tmp/zed
-
-      - name: Build xtask
-        run: cargo build -p xtask --release
-
-      - name: Transform crates (local deps)
-        shell: bash
-        run: |
-          cargo run -p xtask --release -- transform \
-            --zed-tag ${{ needs.check-release.outputs.zed_tag }} \
-            --zed-path /tmp/zed \
-            --local
-
-      - name: Build examples
-        run: |
-          cd crates/gpui-unofficial
-          cargo build --examples
-
   # Only publish job creates orphan branch with version deps
   publish:
-    needs: [check-release, build-examples-linux, build-examples-macos, build-examples-windows]
+    needs: [check-release, check-linux, check-macos, check-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -380,7 +268,7 @@ jobs:
           git push origin generated --force
 
   on-failure:
-    needs: [check-release, check-linux, check-macos, check-windows, build-examples-linux, build-examples-macos, build-examples-windows, publish]
+    needs: [check-release, check-linux, check-macos, check-windows, publish]
     if: failure()
     runs-on: ubuntu-latest
     permissions:

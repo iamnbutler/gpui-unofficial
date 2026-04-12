@@ -162,6 +162,13 @@ fn transform_crate(
     // Copy crate directory
     copy_dir_recursive(&src_dir, &dest_dir)?;
 
+    // Remove examples directory - they depend on assets that don't exist in transformed crates
+    let examples_dir = dest_dir.join("examples");
+    if examples_dir.exists() {
+        fs::remove_dir_all(&examples_dir)?;
+        println!("  Removed examples/ (depends on external assets)");
+    }
+
     // Transform Cargo.toml
     transform_cargo_toml(&dest_dir, output_dir, crate_name, workspace_deps, zed_tag, use_local_deps)?;
 
@@ -252,7 +259,7 @@ fn transform_cargo_toml(
         }
     }
 
-    // For gpui, set lib name to "gpui" so examples can `use gpui::...`
+    // For gpui, set lib name to "gpui" so users can `use gpui::...`
     // even though the package is named "gpui-unofficial"
     if original_name == "gpui" {
         // Update existing [lib] section or create new one
@@ -267,7 +274,7 @@ fn transform_cargo_toml(
             doc.insert("lib", Item::Table(lib_table));
         }
 
-        // Add dev-dependency alias for gpui_platform so examples can `use gpui_platform::...`
+        // Add dev-dependency alias for gpui_platform so users can `use gpui_platform::...` in tests
         if let Some(dev_deps) = doc.get_mut("dev-dependencies") {
             if let Some(table) = dev_deps.as_table_like_mut() {
                 let mut dep = toml_edit::InlineTable::new();
@@ -335,6 +342,9 @@ fn transform_cargo_toml(
 
     // Add custom cfg lints for crates that need them
     add_custom_cfg_lints(&mut doc, original_name);
+
+    // Remove [[example]] sections - examples depend on external assets
+    doc.remove("example");
 
     // Add empty [workspace] to make crate independent
     doc.insert("workspace", Item::Table(toml_edit::Table::new()));
