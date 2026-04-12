@@ -300,11 +300,19 @@ fn transform_cargo_toml(
         add_proptest_dependency(&mut doc);
     }
 
-    // Remove workspace lints (not supported for standalone crates)
+    // Remove workspace lints (not supported for standalone crates) and replace with
+    // explicit lint settings that match zed's workspace behavior.
+    // unexpected_cfgs must be allowed because zed's source uses custom cfgs like
+    // #[cfg(feature = "inspector")], #[cfg(ztracing)], #[cfg(rust_analyzer)], etc.
+    // This mirrors what zed's workspace.toml provides globally.
     doc.remove("lints");
-
-    // Add custom cfg lints for crates that need them
-    add_custom_cfg_lints(&mut doc, original_name);
+    {
+        let mut lints_table = toml_edit::Table::new();
+        let mut rust_table = toml_edit::Table::new();
+        rust_table.insert("unexpected_cfgs", toml_edit::value("allow"));
+        lints_table.insert("rust", Item::Table(rust_table));
+        doc.insert("lints", Item::Table(lints_table));
+    }
 
     // Add empty [workspace] to make crate independent
     doc.insert("workspace", Item::Table(toml_edit::Table::new()));
@@ -725,35 +733,6 @@ fn add_proptest_dependency(doc: &mut DocumentMut) {
     }
 }
 
-/// Add lints configuration for crates that use custom cfg attributes.
-fn add_custom_cfg_lints(doc: &mut DocumentMut, crate_name: &str) {
-    let check_cfgs: &[&str] = match crate_name {
-        "ztracing" => &["cfg(ztracing)", "cfg(ztracing_with_memory)"],
-        "util_macros" => &["cfg(perf_enabled)"],
-        "gpui" => &["cfg(rust_analyzer)"],
-        // objc crate macros use cargo-clippy cfg
-        "gpui_macos" => &["cfg(feature, values(\"cargo-clippy\"))"],
-        _ => return, // No custom cfgs needed
-    };
-
-    // Create [lints.rust] with check-cfg for custom attributes
-    let mut check_cfg_arr = toml_edit::Array::new();
-    for cfg in check_cfgs {
-        check_cfg_arr.push(*cfg);
-    }
-
-    let mut unexpected_cfgs = toml_edit::InlineTable::new();
-    unexpected_cfgs.insert("level", "warn".into());
-    unexpected_cfgs.insert("check-cfg", toml_edit::Value::Array(check_cfg_arr));
-
-    let mut rust_lints = toml_edit::InlineTable::new();
-    rust_lints.insert("unexpected_cfgs", toml_edit::Value::InlineTable(unexpected_cfgs));
-
-    let mut lints_table = toml_edit::Table::new();
-    lints_table.insert("rust", Item::Value(toml_edit::Value::InlineTable(rust_lints)));
-
-    doc.insert("lints", Item::Table(lints_table));
-}
 
 /// Look up the latest version of a package on crates.io via `cargo search`.
 /// Returns the version string (e.g. "29.0.1") or None if not found.
