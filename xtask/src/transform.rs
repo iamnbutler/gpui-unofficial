@@ -253,11 +253,18 @@ fn transform_cargo_toml(
     }
 
     // For gpui, set lib name to "gpui" so examples can `use gpui::...`
-    // even though the package is named "gpui-unofficial"
+    // even though the package is named "gpui-unofficial".
+    // We must preserve the existing [lib] section (e.g. path = "src/gpui.rs", doctest = false).
     if original_name == "gpui" {
-        let mut lib_table = toml_edit::Table::new();
-        lib_table.insert("name", toml_edit::value("gpui"));
-        doc.insert("lib", Item::Table(lib_table));
+        if let Some(lib_section) = doc.get_mut("lib") {
+            if let Some(table) = lib_section.as_table_like_mut() {
+                table.insert("name", toml_edit::value("gpui"));
+            }
+        } else {
+            let mut lib_table = toml_edit::Table::new();
+            lib_table.insert("name", toml_edit::value("gpui"));
+            doc.insert("lib", Item::Table(lib_table));
+        }
 
         // Add dev-dependency alias for gpui_platform so examples can `use gpui_platform::...`
         if let Some(dev_deps) = doc.get_mut("dev-dependencies") {
