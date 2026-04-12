@@ -252,6 +252,28 @@ fn transform_cargo_toml(
         }
     }
 
+    // For gpui, set lib name to "gpui" so examples can `use gpui::...`
+    // even though the package is named "gpui-unofficial"
+    if original_name == "gpui" {
+        let mut lib_table = toml_edit::Table::new();
+        lib_table.insert("name", toml_edit::value("gpui"));
+        doc.insert("lib", Item::Table(lib_table));
+
+        // Add dev-dependency alias for gpui_platform so examples can `use gpui_platform::...`
+        if let Some(dev_deps) = doc.get_mut("dev-dependencies") {
+            if let Some(table) = dev_deps.as_table_like_mut() {
+                let mut dep = toml_edit::InlineTable::new();
+                dep.insert("package", "gpui-platform-gpui-unofficial".into());
+                if use_local_deps {
+                    dep.insert("path", "../gpui-platform-gpui-unofficial".into());
+                } else {
+                    dep.insert("version", version.clone().into());
+                }
+                table.insert("gpui_platform", Item::Value(Value::InlineTable(dep)));
+            }
+        }
+    }
+
     // Transform dependencies, collecting any optional deps that get removed (git-only, no crates.io equiv)
     let mut removed_optionals: Vec<String> = Vec::new();
     transform_dependencies(&mut doc, "dependencies", workspace_deps, &version, output_dir, use_local_deps, &mut removed_optionals)?;
