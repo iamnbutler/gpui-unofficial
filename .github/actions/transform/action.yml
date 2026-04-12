@@ -52,12 +52,19 @@ runs:
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
 
+        # Save crates to temp location
+        cp -r crates /tmp/transformed-crates
+
         # Create orphan branch with just crates/
         git checkout --orphan "$BRANCH"
         git rm -rf . || true
+        cp -r /tmp/transformed-crates crates
         git add crates/
         git commit -m "Release ${VERSION} from zed ${{ inputs.zed_tag }}"
         git push origin "$BRANCH" --force
+
+        # Return to main so post-action cleanup can find .github/actions
+        git checkout main
 
         echo "branch=$BRANCH" >> $GITHUB_OUTPUT
         echo "version=$VERSION" >> $GITHUB_OUTPUT
