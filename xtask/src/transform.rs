@@ -170,6 +170,11 @@ fn transform_crate(
         patch_inspector_cfgs(&dest_dir)?;
     }
 
+    // Patch gpui_macos to fix unnecessary unsafe block
+    if crate_name == "gpui_macos" {
+        patch_gpui_macos_source(&dest_dir)?;
+    }
+
     Ok(())
 }
 
@@ -647,6 +652,29 @@ fn patch_inspector_cfgs(crate_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Patch gpui_macos source to fix unnecessary unsafe block.
+/// NSBeep() is now safe in newer objc bindings.
+fn patch_gpui_macos_source(crate_dir: &Path) -> Result<()> {
+    let window_rs = crate_dir.join("src/window.rs");
+    if !window_rs.exists() {
+        return Ok(());
+    }
+
+    let content = fs::read_to_string(&window_rs)?;
+
+    // Remove unnecessary unsafe around NSBeep()
+    let patched = content.replace(
+        "unsafe { NSBeep() }",
+        "NSBeep()"
+    );
+
+    if patched != content {
+        fs::write(&window_rs, patched)?;
+    }
+
+    Ok(())
+}
+
 /// Add proptest as a dependency for crates that need it for tests.
 /// This is needed because proptest is used by gpui and sum_tree tests but
 /// may not be properly resolved from workspace dependencies.
@@ -703,6 +731,8 @@ fn add_custom_cfg_lints(doc: &mut DocumentMut, crate_name: &str) {
         "ztracing" => &["cfg(ztracing)", "cfg(ztracing_with_memory)"],
         "util_macros" => &["cfg(perf_enabled)"],
         "gpui" => &["cfg(rust_analyzer)"],
+        // objc crate macros use cargo-clippy cfg
+        "gpui_macos" => &["cfg(feature, values(\"cargo-clippy\"))"],
         _ => return, // No custom cfgs needed
     };
 
