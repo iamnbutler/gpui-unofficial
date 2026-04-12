@@ -294,8 +294,19 @@ fn transform_cargo_toml(
         add_proptest_dependency(&mut doc);
     }
 
-    // Remove workspace lints (not supported for standalone crates)
+    // Remove workspace lints (not supported for standalone crates) and replace with
+    // explicit lint settings that match zed's workspace behavior.
+    // In particular, unexpected_cfgs must be allowed because zed's source uses
+    // #[cfg(feature = "inspector")] and other custom cfgs that are known to be valid
+    // (zed's workspace sets unexpected_cfgs = "allow" for the same reason).
     doc.remove("lints");
+    {
+        let mut lints_table = toml_edit::Table::new();
+        let mut rust_table = toml_edit::Table::new();
+        rust_table.insert("unexpected_cfgs", toml_edit::value("allow"));
+        lints_table.insert("rust", Item::Table(rust_table));
+        doc.insert("lints", Item::Table(lints_table));
+    }
 
     // Add empty [workspace] to make crate independent
     doc.insert("workspace", Item::Table(toml_edit::Table::new()));
