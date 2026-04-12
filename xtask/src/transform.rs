@@ -266,20 +266,6 @@ fn transform_cargo_toml(
             lib_table.insert("path", toml_edit::value("src/lib.rs"));
             doc.insert("lib", Item::Table(lib_table));
         }
-
-        // Add dev-dependency alias for gpui_platform so examples can `use gpui_platform::...`
-        if let Some(dev_deps) = doc.get_mut("dev-dependencies") {
-            if let Some(table) = dev_deps.as_table_like_mut() {
-                let mut dep = toml_edit::InlineTable::new();
-                dep.insert("package", "gpui-platform-gpui-unofficial".into());
-                if use_local_deps {
-                    dep.insert("path", "../gpui-platform-gpui-unofficial".into());
-                } else {
-                    dep.insert("version", version.clone().into());
-                }
-                table.insert("gpui_platform", Item::Value(Value::InlineTable(dep)));
-            }
-        }
     }
 
     // Transform dependencies, collecting any optional deps that get removed (git-only, no crates.io equiv)
@@ -310,6 +296,30 @@ fn transform_cargo_toml(
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+
+    // For gpui, ensure gpui_platform is in dev-dependencies so examples can `use gpui_platform::...`
+    // transform_dependencies above already handles this when gpui_platform is a workspace dep
+    // (which it is in modern zed, with features = ["font-kit"]). This block is a fallback only.
+    if original_name == "gpui" {
+        if let Some(dev_deps) = doc.get_mut("dev-dependencies") {
+            if let Some(table) = dev_deps.as_table_like_mut() {
+                if !table.contains_key("gpui_platform") {
+                    let mut dep = toml_edit::InlineTable::new();
+                    dep.insert("package", "gpui-platform-gpui-unofficial".into());
+                    if use_local_deps {
+                        dep.insert("path", "../gpui-platform-gpui-unofficial".into());
+                    } else {
+                        dep.insert("version", version.clone().into());
+                    }
+                    // Include font-kit feature so platform backends activate font rendering
+                    let mut feat_arr = toml_edit::Array::new();
+                    feat_arr.push("font-kit");
+                    dep.insert("features", toml_edit::Value::Array(feat_arr));
+                    table.insert("gpui_platform", Item::Value(Value::InlineTable(dep)));
                 }
             }
         }
