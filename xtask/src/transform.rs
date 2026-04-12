@@ -297,6 +297,11 @@ fn transform_cargo_toml(
     // Remove workspace lints (not supported for standalone crates)
     doc.remove("lints");
 
+    // Add custom cfg lints for ztracing crate
+    if original_name == "ztracing" {
+        add_ztracing_lints(&mut doc);
+    }
+
     // Add empty [workspace] to make crate independent
     doc.insert("workspace", Item::Table(toml_edit::Table::new()));
 
@@ -651,6 +656,27 @@ fn add_proptest_dependency(doc: &mut DocumentMut) {
             }
         }
     }
+}
+
+/// Add lints configuration for ztracing crate to allow custom cfg attributes.
+fn add_ztracing_lints(doc: &mut DocumentMut) {
+    // Create [lints.rust] with check-cfg for custom attributes
+    let mut rust_lints = toml_edit::InlineTable::new();
+
+    let mut check_cfg_arr = toml_edit::Array::new();
+    check_cfg_arr.push("cfg(ztracing)");
+    check_cfg_arr.push("cfg(ztracing_with_memory)");
+
+    let mut unexpected_cfgs = toml_edit::InlineTable::new();
+    unexpected_cfgs.insert("level", "warn".into());
+    unexpected_cfgs.insert("check-cfg", toml_edit::Value::Array(check_cfg_arr));
+
+    rust_lints.insert("unexpected_cfgs", toml_edit::Value::InlineTable(unexpected_cfgs));
+
+    let mut lints_table = toml_edit::Table::new();
+    lints_table.insert("rust", Item::Value(toml_edit::Value::InlineTable(rust_lints)));
+
+    doc.insert("lints", Item::Table(lints_table));
 }
 
 /// Look up the latest version of a package on crates.io via `cargo search`.
