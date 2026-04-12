@@ -165,9 +165,9 @@ fn transform_crate(
     // Transform Cargo.toml
     transform_cargo_toml(&dest_dir, output_dir, crate_name, workspace_deps, zed_tag, use_local_deps)?;
 
-    // Patch source files for specific crates
-    if crate_name == "gpui_macros" {
-        patch_gpui_macros_source(&dest_dir)?;
+    // Patch source files for specific crates to remove inspector feature references
+    if crate_name == "gpui_macros" || crate_name == "gpui" {
+        patch_inspector_cfgs(&dest_dir)?;
     }
 
     Ok(())
@@ -607,23 +607,43 @@ fn remove_inspector_feature(doc: &mut DocumentMut) {
     }
 }
 
-/// Patch gpui_macros source to remove inspector feature references.
-/// Changes `#[cfg(any(feature = "inspector", debug_assertions))]` to `#[cfg(debug_assertions)]`
-fn patch_gpui_macros_source(crate_dir: &Path) -> Result<()> {
-    let source_file = crate_dir.join("src/gpui_macros.rs");
-    if !source_file.exists() {
+/// Patch source files to remove inspector feature references.
+/// Replaces various inspector cfg patterns with simpler versions.
+fn patch_inspector_cfgs(crate_dir: &Path) -> Result<()> {
+    let src_dir = crate_dir.join("src");
+    if !src_dir.exists() {
         return Ok(());
     }
 
-    let content = fs::read_to_string(&source_file)?;
+    for entry in WalkDir::new(&src_dir) {
+        let entry = entry?;
+        if entry.file_type().is_file() && entry.path().extension().is_some_and(|e| e == "rs") {
+            let content = fs::read_to_string(entry.path())?;
 
-    // Replace the inspector cfg with just debug_assertions
-    let patched = content.replace(
-        "#[cfg(any(feature = \"inspector\", debug_assertions))]",
-        "#[cfg(debug_assertions)]"
-    );
+            // Replace various inspector cfg patterns
+            let patched = content
+                // Simple case: #[cfg(any(feature = "inspector", debug_assertions))]
+                .replace(
+                    "#[cfg(any(feature = \"inspector\", debug_assertions))]",
+                    "#[cfg(debug_assertions)]"
+                )
+                // Negated case: #[cfg(not(any(feature = "inspector", debug_assertions)))]
+                .replace(
+                    "#[cfg(not(any(feature = \"inspector\", debug_assertions)))]",
+                    "#[cfg(not(debug_assertions))]"
+                )
+                // Complex case with rust_analyzer: all(any(feature = "inspector", debug_assertions), not(rust_analyzer))
+                .replace(
+                    "all(any(feature = \"inspector\", debug_assertions), not(rust_analyzer))",
+                    "all(debug_assertions, not(rust_analyzer))"
+                );
 
-    fs::write(&source_file, patched)?;
+            if patched != content {
+                fs::write(entry.path(), patched)?;
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -682,6 +702,7 @@ fn add_custom_cfg_lints(doc: &mut DocumentMut, crate_name: &str) {
     let check_cfgs: &[&str] = match crate_name {
         "ztracing" => &["cfg(ztracing)", "cfg(ztracing_with_memory)"],
         "util_macros" => &["cfg(perf_enabled)"],
+        "gpui" => &["cfg(rust_analyzer)"],
         _ => return, // No custom cfgs needed
     };
 
