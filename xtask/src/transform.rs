@@ -165,9 +165,10 @@ fn transform_crate(
     // Transform Cargo.toml
     transform_cargo_toml(&dest_dir, output_dir, crate_name, workspace_deps, zed_tag, use_local_deps)?;
 
-    // Note: Source files don't need transformation because we use Cargo.toml package aliasing
-    // e.g., `collections = { package = "collections-unofficial", ... }`
-    // This lets code keep using `use collections::...`
+    // Patch source files for specific crates
+    if crate_name == "gpui_macros" {
+        patch_gpui_macros_source(&dest_dir)?;
+    }
 
     Ok(())
 }
@@ -606,6 +607,26 @@ fn remove_inspector_feature(doc: &mut DocumentMut) {
     }
 }
 
+/// Patch gpui_macros source to remove inspector feature references.
+/// Changes `#[cfg(any(feature = "inspector", debug_assertions))]` to `#[cfg(debug_assertions)]`
+fn patch_gpui_macros_source(crate_dir: &Path) -> Result<()> {
+    let source_file = crate_dir.join("src/gpui_macros.rs");
+    if !source_file.exists() {
+        return Ok(());
+    }
+
+    let content = fs::read_to_string(&source_file)?;
+
+    // Replace the inspector cfg with just debug_assertions
+    let patched = content.replace(
+        "#[cfg(any(feature = \"inspector\", debug_assertions))]",
+        "#[cfg(debug_assertions)]"
+    );
+
+    fs::write(&source_file, patched)?;
+    Ok(())
+}
+
 /// Add proptest as a dependency for crates that need it for tests.
 /// This is needed because proptest is used by gpui and sum_tree tests but
 /// may not be properly resolved from workspace dependencies.
@@ -661,7 +682,6 @@ fn add_custom_cfg_lints(doc: &mut DocumentMut, crate_name: &str) {
     let check_cfgs: &[&str] = match crate_name {
         "ztracing" => &["cfg(ztracing)", "cfg(ztracing_with_memory)"],
         "util_macros" => &["cfg(perf_enabled)"],
-        "gpui_macros" => &["cfg(feature, values(\"inspector\"))"],
         _ => return, // No custom cfgs needed
     };
 
