@@ -257,6 +257,7 @@ fn transform_cargo_toml(
     if original_name == "gpui" {
         let mut lib_table = toml_edit::Table::new();
         lib_table.insert("name", toml_edit::value("gpui"));
+        lib_table.insert("path", toml_edit::value("src/lib.rs"));
         doc.insert("lib", Item::Table(lib_table));
 
         // Add dev-dependency alias for gpui_platform so examples can `use gpui_platform::...`
