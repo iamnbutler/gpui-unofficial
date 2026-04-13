@@ -722,6 +722,8 @@ fn patch_text_example(crate_dir: &Path) -> Result<()> {
     }
 
     let content = fs::read_to_string(&text_rs)?;
+    // Normalize line endings for cross-platform compatibility
+    let content = content.replace("\r\n", "\n");
 
     // Remove the Cow import (no longer needed without include_bytes)
     let patched = content.replace(
@@ -810,6 +812,8 @@ fn add_custom_cfg_lints(doc: &mut DocumentMut, crate_name: &str) {
         "gpui" => &["cfg(rust_analyzer)"],
         // objc crate macros use cargo-clippy cfg
         "gpui_macos" => &["cfg(feature, values(\"cargo-clippy\"))"],
+        // nightly_coverage feature for code coverage
+        "gpui_linux" => &["cfg(feature, values(\"nightly_coverage\"))"],
         _ => return, // No custom cfgs needed
     };
 
