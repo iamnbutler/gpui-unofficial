@@ -1,0 +1,13 @@
+[package]
+name = "gpui-util-gpui-unofficial"
+version = "0.231.2"
+edition = "2024"
+repository = "https://github.com/iamnbutler/gpui-unofficial"
+license = "Apache-2.0"
+description = "Unofficial release of Zed's gpui_util crate"
+
+[dependencies]
+log = { version = "0.4.16", features = ["kv_unstable_serde", "serde"] }
+anyhow = { version = "1.0.86" }
+
+[workspace]
