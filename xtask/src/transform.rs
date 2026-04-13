@@ -162,11 +162,9 @@ fn transform_crate(
     // Copy crate directory
     copy_dir_recursive(&src_dir, &dest_dir)?;
 
-    // Remove examples directory - they depend on assets that don't exist in transformed crates
-    let examples_dir = dest_dir.join("examples");
-    if examples_dir.exists() {
-        fs::remove_dir_all(&examples_dir)?;
-        println!("  Removed examples/ (depends on external assets)");
+    // Patch examples that reference external assets
+    if crate_name == "gpui" {
+        patch_text_example(&dest_dir)?;
     }
 
     // Transform Cargo.toml
@@ -342,9 +340,6 @@ fn transform_cargo_toml(
 
     // Add custom cfg lints for crates that need them
     add_custom_cfg_lints(&mut doc, original_name);
-
-    // Remove [[example]] sections - examples depend on external assets
-    doc.remove("example");
 
     // Add empty [workspace] to make crate independent
     doc.insert("workspace", Item::Table(toml_edit::Table::new()));
@@ -718,6 +713,45 @@ fn patch_gpui_macos_source(crate_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Patch text.rs example to remove external font dependency.
+/// The example uses include_bytes! for a font file outside the crate.
+fn patch_text_example(crate_dir: &Path) -> Result<()> {
+    let text_rs = crate_dir.join("examples/text.rs");
+    if !text_rs.exists() {
+        return Ok(());
+    }
+
+    let content = fs::read_to_string(&text_rs)?;
+
+    // Remove the Cow import (no longer needed without include_bytes)
+    let patched = content.replace(
+        "    borrow::Cow,\n",
+        ""
+    );
+
+    // Remove the font loading block
+    let patched = patched.replace(
+        r#"let fonts = [include_bytes!(
+            "../../../assets/fonts/lilex/Lilex-Regular.ttf"
+        )]
+        .iter()
+        .map(|b| Cow::Borrowed(&b[..]))
+        .collect();
+
+        _ = cx.text_system().add_fonts(fonts);
+
+        "#,
+        ""
+    );
+
+    if patched != content {
+        fs::write(&text_rs, patched)?;
+        println!("  Patched examples/text.rs (removed external font dependency)");
+    }
+
+    Ok(())
+}
+
 /// Add proptest as a dependency for crates that need it for tests.
 /// This is needed because proptest is used by gpui and sum_tree tests but
 /// may not be properly resolved from workspace dependencies.
@@ -866,3 +900,4 @@ fn write_metadata(output_dir: &Path, zed_tag: &str, zed_dir: &Path) -> Result<()
 
     Ok(())
 }
+
