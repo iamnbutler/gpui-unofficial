@@ -10,6 +10,7 @@ use walkdir::WalkDir;
 pub const CRATE_PUBLISH_ORDER: &[&str] = &[
     // Tier 1 - Leaf crates
     "gpui_util",
+    "gpui_shared_string",
     "collections",
     "refineable/derive_refineable",
     "refineable",
