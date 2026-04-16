@@ -9,6 +9,7 @@ use walkdir::WalkDir;
 /// Crates to extract and publish, in topological order (dependencies first)
 pub const CRATE_PUBLISH_ORDER: &[&str] = &[
     // Tier 1 - Leaf crates
+    "gpui_shared_string",
     "gpui_util",
     "collections",
     "refineable/derive_refineable",
