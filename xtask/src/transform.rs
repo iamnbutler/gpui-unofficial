@@ -766,6 +766,9 @@ fn add_proptest_dependency(doc: &mut DocumentMut) {
                 let mut dep = toml_edit::InlineTable::new();
                 dep.insert("version", "1".into());
                 dep.insert("optional", true.into());
+                let mut features = toml_edit::Array::new();
+                features.push("attr-macro");
+                dep.insert("features", features.into());
                 table.insert("proptest", Item::Value(Value::InlineTable(dep)));
             }
         }
@@ -777,6 +780,9 @@ fn add_proptest_dependency(doc: &mut DocumentMut) {
             if !table.contains_key("proptest") {
                 let mut dep = toml_edit::InlineTable::new();
                 dep.insert("version", "1".into());
+                let mut features = toml_edit::Array::new();
+                features.push("attr-macro");
+                dep.insert("features", features.into());
                 table.insert("proptest", Item::Value(Value::InlineTable(dep)));
             }
         }
@@ -785,6 +791,9 @@ fn add_proptest_dependency(doc: &mut DocumentMut) {
         let mut dev_deps = toml_edit::Table::new();
         let mut dep = toml_edit::InlineTable::new();
         dep.insert("version", "1".into());
+        let mut features = toml_edit::Array::new();
+        features.push("attr-macro");
+        dep.insert("features", features.into());
         dev_deps.insert("proptest", Item::Value(Value::InlineTable(dep)));
         doc.insert("dev-dependencies", Item::Table(dev_deps));
     }
