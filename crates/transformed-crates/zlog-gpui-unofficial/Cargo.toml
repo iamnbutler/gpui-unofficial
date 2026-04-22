@@ -1,0 +1,24 @@
+[package]
+name = "zlog-gpui-unofficial"
+version = "0.233.5"
+edition = "2024"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/iamnbutler/gpui-unofficial"
+description = "Unofficial release of Zed's zlog crate"
+
+[lib]
+path = "src/zlog.rs"
+
+[features]
+default = []
+
+[dependencies]
+collections = { package = "collections-gpui-unofficial", version = "0.233.5" }
+chrono = { version = "0.4", features = ["serde"] }
+log = { version = "0.4.16", features = ["kv_unstable_serde", "serde"] }
+anyhow = { version = "1.0.86" }
+
+[dev-dependencies]
+tempfile = { version = "3.20.0" }
+
+[workspace]
