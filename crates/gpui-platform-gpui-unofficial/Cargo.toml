@@ -1,0 +1,38 @@
+[package]
+name = "gpui-platform-gpui-unofficial"
+version = "0.233.8"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/iamnbutler/gpui-unofficial"
+description = "Unofficial release of Zed's gpui_platform crate"
+
+[lib]
+path = "src/gpui_platform.rs"
+
+[features]
+default = []
+font-kit = ["gpui_macos/font-kit"]
+test-support = ["gpui/test-support", "gpui_macos/test-support"]
+screen-capture = ["gpui/screen-capture", "gpui_macos/screen-capture", "gpui_windows/screen-capture", "gpui_linux/screen-capture"]
+runtime_shaders = ["gpui_macos/runtime_shaders"]
+wayland = ["gpui_linux/wayland"]
+x11 = ["gpui_linux/x11"]
+
+[dependencies]
+gpui = { package = "gpui-unofficial", version = "0.233.8" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+gpui_macos = { package = "gpui-macos-gpui-unofficial", version = "0.233.8" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+gpui_windows = { package = "gpui-windows-gpui-unofficial", version = "0.233.8" }
+gpui = { package = "gpui-unofficial", version = "0.233.8", features = ["windows-manifest"] }
+
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
+gpui_linux = { package = "gpui-linux-gpui-unofficial", version = "0.233.8" }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+gpui_web = { package = "gpui-web-gpui-unofficial", version = "0.233.8" }
+console_error_panic_hook = "0.1.7"
+
+[workspace]

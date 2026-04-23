@@ -1,0 +1,20 @@
+[package]
+name = "collections-gpui-unofficial"
+version = "0.233.8"
+edition = "2024"
+license = "Apache-2.0"
+description = "Standard collection types used by Zed and GPUI"
+repository = "https://github.com/iamnbutler/gpui-unofficial"
+
+[lib]
+path = "src/collections.rs"
+doctest = false
+
+[features]
+test-support = []
+
+[dependencies]
+indexmap = { version = "2.7.0", features = ["serde"] }
+rustc-hash = { version = "2.1.0" }
+
+[workspace]
