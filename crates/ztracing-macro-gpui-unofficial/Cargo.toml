@@ -1,0 +1,14 @@
+[package]
+name = "ztracing-macro-gpui-unofficial"
+version = "0.233.7"
+edition = "2024"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/iamnbutler/gpui-unofficial"
+description = "Unofficial release of Zed's ztracing_macro crate"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+
+[workspace]
