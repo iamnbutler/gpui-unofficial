@@ -798,15 +798,27 @@ fn add_proptest_dependency(doc: &mut DocumentMut) {
         doc.insert("dev-dependencies", Item::Table(dev_deps));
     }
 
-    // Add dep:proptest to test-support feature
+    // Ensure features table exists, then declare an explicit `proptest` feature
+    // and reference it from test-support. Using a named feature (instead of
+    // `dep:proptest`) makes `#[cfg(feature = "proptest")]` in source a recognized
+    // cfg value — otherwise -Dwarnings turns the unexpected-cfgs lint fatal.
+    if doc.get("features").is_none() {
+        doc.insert("features", Item::Table(toml_edit::Table::new()));
+    }
     if let Some(features) = doc.get_mut("features") {
         if let Some(table) = features.as_table_like_mut() {
+            if !table.contains_key("proptest") {
+                let mut arr = toml_edit::Array::new();
+                arr.push("dep:proptest");
+                table.insert("proptest", Item::Value(Value::Array(arr)));
+            }
             if let Some(test_support) = table.get_mut("test-support") {
                 if let Some(arr) = test_support.as_array_mut() {
-                    // Check if dep:proptest is already there
-                    let has_proptest = arr.iter().any(|v| v.as_str() == Some("dep:proptest"));
+                    let has_proptest = arr
+                        .iter()
+                        .any(|v| matches!(v.as_str(), Some("proptest") | Some("dep:proptest")));
                     if !has_proptest {
-                        arr.push("dep:proptest");
+                        arr.push("proptest");
                     }
                 }
             }
