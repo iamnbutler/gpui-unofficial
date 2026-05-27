@@ -798,15 +798,18 @@ fn add_proptest_dependency(doc: &mut DocumentMut) {
         doc.insert("dev-dependencies", Item::Table(dev_deps));
     }
 
-    // Add dep:proptest to test-support feature
+    // Add proptest to test-support feature. We use the bare name (not `dep:proptest`)
+    // so cargo creates the implicit `proptest` feature — gpui's source has
+    // `#[cfg(feature = "proptest")]` references that require it to exist.
     if let Some(features) = doc.get_mut("features") {
         if let Some(table) = features.as_table_like_mut() {
             if let Some(test_support) = table.get_mut("test-support") {
                 if let Some(arr) = test_support.as_array_mut() {
-                    // Check if dep:proptest is already there
-                    let has_proptest = arr.iter().any(|v| v.as_str() == Some("dep:proptest"));
+                    let has_proptest = arr.iter().any(|v| {
+                        matches!(v.as_str(), Some("proptest") | Some("dep:proptest"))
+                    });
                     if !has_proptest {
-                        arr.push("dep:proptest");
+                        arr.push("proptest");
                     }
                 }
             }
