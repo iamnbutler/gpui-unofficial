@@ -798,15 +798,35 @@ fn add_proptest_dependency(doc: &mut DocumentMut) {
         doc.insert("dev-dependencies", Item::Table(dev_deps));
     }
 
-    // Add dep:proptest to test-support feature
+    // Expose proptest through an explicit `proptest` feature.
+    //
+    // In zed, proptest is an optional dependency, which makes Cargo derive an
+    // implicit `proptest` feature that source code gates on (e.g. gpui's
+    // `src/color.rs` uses `#[cfg(feature = "proptest")]`). If we instead activate
+    // the optional dep via a bare `dep:proptest` inside `test-support`, Cargo
+    // STOPS deriving that implicit feature, so `feature = "proptest"` becomes an
+    // `unexpected_cfgs` lint — a hard error under the workflow's `-Dwarnings`.
+    //
+    // Defining an explicit `proptest = ["dep:proptest"]` feature keeps the cfg
+    // recognized, and `test-support` activates it by name.
     if let Some(features) = doc.get_mut("features") {
         if let Some(table) = features.as_table_like_mut() {
+            // Define the explicit `proptest` feature that turns on the optional dep.
+            if !table.contains_key("proptest") {
+                let mut arr = toml_edit::Array::new();
+                arr.push("dep:proptest");
+                table.insert("proptest", Item::Value(Value::Array(arr)));
+            }
+
+            // Have `test-support` activate the `proptest` feature by name. A direct
+            // `dep:proptest` entry here would suppress the implicit feature, so
+            // strip it if present and reference `proptest` instead.
             if let Some(test_support) = table.get_mut("test-support") {
                 if let Some(arr) = test_support.as_array_mut() {
-                    // Check if dep:proptest is already there
-                    let has_proptest = arr.iter().any(|v| v.as_str() == Some("dep:proptest"));
+                    arr.retain(|v| v.as_str() != Some("dep:proptest"));
+                    let has_proptest = arr.iter().any(|v| v.as_str() == Some("proptest"));
                     if !has_proptest {
-                        arr.push("dep:proptest");
+                        arr.push("proptest");
                     }
                 }
             }
