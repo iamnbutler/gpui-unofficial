@@ -798,15 +798,27 @@ fn add_proptest_dependency(doc: &mut DocumentMut) {
         doc.insert("dev-dependencies", Item::Table(dev_deps));
     }
 
-    // Add dep:proptest to test-support feature
+    // Enable proptest from the test-support feature via its BARE name.
+    //
+    // proptest is added above as an optional dependency, which makes Cargo
+    // automatically create an implicit `proptest` feature. We must reference it
+    // by bare name (`"proptest"`), NOT `"dep:proptest"`: the moment `dep:proptest`
+    // syntax appears anywhere in the manifest, Cargo stops creating that implicit
+    // feature. zed's gpui source gates code on `#[cfg(feature = "proptest")]`
+    // (e.g. crates/gpui/src/color.rs), which is only a recognized cfg value when
+    // the implicit `proptest` feature exists. Using `dep:proptest` here suppresses
+    // it and triggers `unexpected cfg condition value: proptest`, which is a hard
+    // error under `-Dwarnings`. The bare reference both activates the dependency
+    // and preserves zed's original feature semantics.
     if let Some(features) = doc.get_mut("features") {
         if let Some(table) = features.as_table_like_mut() {
             if let Some(test_support) = table.get_mut("test-support") {
                 if let Some(arr) = test_support.as_array_mut() {
-                    // Check if dep:proptest is already there
-                    let has_proptest = arr.iter().any(|v| v.as_str() == Some("dep:proptest"));
+                    let has_proptest = arr
+                        .iter()
+                        .any(|v| matches!(v.as_str(), Some("proptest") | Some("dep:proptest")));
                     if !has_proptest {
-                        arr.push("dep:proptest");
+                        arr.push("proptest");
                     }
                 }
             }
