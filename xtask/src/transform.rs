@@ -798,15 +798,24 @@ fn add_proptest_dependency(doc: &mut DocumentMut) {
         doc.insert("dev-dependencies", Item::Table(dev_deps));
     }
 
-    // Add dep:proptest to test-support feature
+    // Re-add proptest to the test-support feature.
+    //
+    // Use the bare `proptest` reference (NOT `dep:proptest`). proptest is declared as an
+    // optional dependency above, so Cargo synthesizes an implicit `proptest` feature for it —
+    // but only as long as no `dep:proptest` syntax appears anywhere in [features]. gpui's
+    // source relies on that implicit feature (e.g. `#[cfg(feature = "proptest")]` in color.rs).
+    // Referencing `dep:proptest` here would suppress the implicit feature, turning that cfg into
+    // an "unexpected cfg condition value" warning — which fails the build under `-Dwarnings`.
+    // The bare reference mirrors zed's original `test-support = [.., "proptest"]` setup.
     if let Some(features) = doc.get_mut("features") {
         if let Some(table) = features.as_table_like_mut() {
             if let Some(test_support) = table.get_mut("test-support") {
                 if let Some(arr) = test_support.as_array_mut() {
-                    // Check if dep:proptest is already there
-                    let has_proptest = arr.iter().any(|v| v.as_str() == Some("dep:proptest"));
+                    let has_proptest = arr
+                        .iter()
+                        .any(|v| matches!(v.as_str(), Some("proptest") | Some("dep:proptest")));
                     if !has_proptest {
-                        arr.push("dep:proptest");
+                        arr.push("proptest");
                     }
                 }
             }
