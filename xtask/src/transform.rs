@@ -798,16 +798,35 @@ fn add_proptest_dependency(doc: &mut DocumentMut) {
         doc.insert("dev-dependencies", Item::Table(dev_deps));
     }
 
-    // Add dep:proptest to test-support feature
+    // Enable proptest from the test-support feature via the *implicit* feature that
+    // Cargo creates for the optional `proptest` dependency. We MUST use the bare name
+    // "proptest" here, never "dep:proptest": using the `dep:` prefix anywhere in the
+    // manifest suppresses the implicit `proptest` feature. gpui and sum_tree source
+    // gate code behind `#[cfg(feature = "proptest")]` (e.g. gpui/src/color.rs), so
+    // suppressing that implicit feature turns those gates into `unexpected_cfgs`
+    // warnings — which are fatal because CI builds with `RUSTFLAGS: -Dwarnings`.
+    // This mirrors how zed's own Cargo.toml references proptest.
     if let Some(features) = doc.get_mut("features") {
         if let Some(table) = features.as_table_like_mut() {
             if let Some(test_support) = table.get_mut("test-support") {
                 if let Some(arr) = test_support.as_array_mut() {
-                    // Check if dep:proptest is already there
-                    let has_proptest = arr.iter().any(|v| v.as_str() == Some("dep:proptest"));
-                    if !has_proptest {
-                        arr.push("dep:proptest");
+                    // Replace any pre-existing `dep:proptest` entry (which would break
+                    // the implicit feature) and ensure a bare `proptest` is present.
+                    let mut new_arr = toml_edit::Array::new();
+                    let mut has_bare = false;
+                    for v in arr.iter() {
+                        if v.as_str() == Some("dep:proptest") {
+                            continue;
+                        }
+                        if v.as_str() == Some("proptest") {
+                            has_bare = true;
+                        }
+                        new_arr.push(v.clone());
                     }
+                    if !has_bare {
+                        new_arr.push("proptest");
+                    }
+                    *arr = new_arr;
                 }
             }
         }
