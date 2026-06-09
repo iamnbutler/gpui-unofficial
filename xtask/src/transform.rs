@@ -810,6 +810,19 @@ fn add_proptest_dependency(doc: &mut DocumentMut) {
                     }
                 }
             }
+
+            // Define an explicit `proptest` feature so source code can gate on
+            // `#[cfg(feature = "proptest")]` (e.g. gpui's src/color.rs). Because
+            // proptest is referenced via `dep:proptest` above, Cargo does NOT
+            // synthesize an implicit `proptest` feature, so it must be declared
+            // explicitly — otherwise rustc emits an `unexpected cfg` warning,
+            // which the sync workflow's `RUSTFLAGS: -Dwarnings` promotes to a
+            // hard error.
+            if !table.contains_key("proptest") {
+                let mut arr = toml_edit::Array::new();
+                arr.push("dep:proptest");
+                table.insert("proptest", Item::Value(Value::Array(arr)));
+            }
         }
     }
 }
