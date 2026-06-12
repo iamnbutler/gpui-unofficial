@@ -798,15 +798,25 @@ fn add_proptest_dependency(doc: &mut DocumentMut) {
         doc.insert("dev-dependencies", Item::Table(dev_deps));
     }
 
-    // Add dep:proptest to test-support feature
+    // Enable proptest via the test-support feature using the dependency's BARE
+    // name ("proptest"), NOT the `dep:proptest` form.
+    //
+    // Using `dep:proptest` suppresses Cargo's implicit `proptest` feature. The gpui
+    // source gates code with `#[cfg(feature = "proptest")]` (e.g. src/color.rs), so
+    // without the implicit feature that cfg becomes "unexpected". Under the sync
+    // workflow's `RUSTFLAGS: -Dwarnings`, the unexpected_cfgs warning is promoted to a
+    // hard error and `cargo check` fails. Referencing the bare name keeps the implicit
+    // `proptest` feature, so `cfg(feature = "proptest")` stays a recognized value.
     if let Some(features) = doc.get_mut("features") {
         if let Some(table) = features.as_table_like_mut() {
             if let Some(test_support) = table.get_mut("test-support") {
                 if let Some(arr) = test_support.as_array_mut() {
-                    // Check if dep:proptest is already there
-                    let has_proptest = arr.iter().any(|v| v.as_str() == Some("dep:proptest"));
+                    // Treat either the bare or `dep:` form as already present.
+                    let has_proptest = arr
+                        .iter()
+                        .any(|v| matches!(v.as_str(), Some("proptest") | Some("dep:proptest")));
                     if !has_proptest {
-                        arr.push("dep:proptest");
+                        arr.push("proptest");
                     }
                 }
             }
