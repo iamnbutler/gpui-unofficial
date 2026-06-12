@@ -798,15 +798,35 @@ fn add_proptest_dependency(doc: &mut DocumentMut) {
         doc.insert("dev-dependencies", Item::Table(dev_deps));
     }
 
-    // Add dep:proptest to test-support feature
+    // Ensure an explicit `proptest` feature exists and that `test-support` enables it.
+    //
+    // Zed declares proptest as a git-only optional dependency. Cargo would normally
+    // expose an optional dependency as an implicit feature of the same name, but our
+    // transform replaces the git dep with a crates.io optional dependency referenced
+    // via `dep:proptest`. Using `dep:` syntax anywhere in [features] suppresses that
+    // implicit feature. Source code still guards proptest-only code with
+    // `#[cfg(feature = "proptest")]` (e.g. gpui's color.rs), so without an explicit
+    // `proptest` feature cargo emits an `unexpected_cfgs` warning — which fails the
+    // build under `-Dwarnings`. Define the feature explicitly and have test-support
+    // enable it by name, matching zed's own `test-support = ["proptest"]`.
+    if doc.get("features").is_none() {
+        doc.insert("features", Item::Table(toml_edit::Table::new()));
+    }
     if let Some(features) = doc.get_mut("features") {
         if let Some(table) = features.as_table_like_mut() {
+            // Define `proptest = ["dep:proptest"]` if not already present.
+            if !table.contains_key("proptest") {
+                let mut arr = toml_edit::Array::new();
+                arr.push("dep:proptest");
+                table.insert("proptest", Item::Value(Value::Array(arr)));
+            }
+            // Have test-support enable the `proptest` feature (bare name), dropping any
+            // direct `dep:proptest` entry an earlier transform step may have added.
             if let Some(test_support) = table.get_mut("test-support") {
                 if let Some(arr) = test_support.as_array_mut() {
-                    // Check if dep:proptest is already there
-                    let has_proptest = arr.iter().any(|v| v.as_str() == Some("dep:proptest"));
-                    if !has_proptest {
-                        arr.push("dep:proptest");
+                    arr.retain(|v| v.as_str() != Some("dep:proptest"));
+                    if !arr.iter().any(|v| v.as_str() == Some("proptest")) {
+                        arr.push("proptest");
                     }
                 }
             }
