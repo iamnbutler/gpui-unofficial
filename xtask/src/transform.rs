@@ -798,19 +798,35 @@ fn add_proptest_dependency(doc: &mut DocumentMut) {
         doc.insert("dev-dependencies", Item::Table(dev_deps));
     }
 
-    // Add dep:proptest to test-support feature
-    if let Some(features) = doc.get_mut("features") {
-        if let Some(table) = features.as_table_like_mut() {
-            if let Some(test_support) = table.get_mut("test-support") {
-                if let Some(arr) = test_support.as_array_mut() {
-                    // Check if dep:proptest is already there
-                    let has_proptest = arr.iter().any(|v| v.as_str() == Some("dep:proptest"));
-                    if !has_proptest {
-                        arr.push("dep:proptest");
-                    }
-                }
-            }
+    // Declare an explicit `proptest` feature gating the optional dependency.
+    //
+    // Upstream relies on the *implicit* feature that Cargo derives from the
+    // optional `proptest` dependency, and gates code with `#[cfg(feature = "proptest")]`
+    // (e.g. gpui's src/color.rs). If we instead reference `dep:proptest` anywhere,
+    // Cargo stops creating that implicit feature, so `feature = "proptest"` becomes an
+    // unexpected cfg — which fails CI because the sync workflow builds with `-Dwarnings`.
+    //
+    // Defining `proptest = ["dep:proptest"]` keeps `proptest` a recognized feature name
+    // (so the cfg is expected) while still gating the optional dependency. The upstream
+    // `test-support = [.., "proptest"]` entry continues to activate it.
+    let mut features_table = toml_edit::Table::new();
+    let features = doc
+        .get_mut("features")
+        .and_then(|f| f.as_table_like_mut());
+    let has_features = features.is_some();
+    if let Some(table) = features {
+        if !table.contains_key("proptest") {
+            let mut arr = toml_edit::Array::new();
+            arr.push("dep:proptest");
+            table.insert("proptest", Item::Value(Value::Array(arr)));
         }
+    } else {
+        let mut arr = toml_edit::Array::new();
+        arr.push("dep:proptest");
+        features_table.insert("proptest", Item::Value(Value::Array(arr)));
+    }
+    if !has_features {
+        doc.insert("features", Item::Table(features_table));
     }
 }
 
