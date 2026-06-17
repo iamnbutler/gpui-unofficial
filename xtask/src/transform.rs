@@ -798,16 +798,47 @@ fn add_proptest_dependency(doc: &mut DocumentMut) {
         doc.insert("dev-dependencies", Item::Table(dev_deps));
     }
 
-    // Add dep:proptest to test-support feature
+    // Ensure a `proptest` feature exists and is enabled by `test-support`.
+    //
+    // We re-add proptest as an optional dependency above. An optional dependency
+    // normally creates an implicit feature of the same name, but referring to it
+    // as `dep:proptest` anywhere in `[features]` suppresses that implicit feature.
+    // zed gates code on `#[cfg(feature = "proptest")]` (e.g. gpui/src/color.rs), so
+    // the `proptest` feature must exist by name — otherwise the cfg is reported as
+    // an `unexpected_cfgs` warning, which becomes a hard error under `-D warnings`.
+    //
+    // So define an explicit `proptest = ["dep:proptest"]` feature and have
+    // `test-support` enable that feature (not a bare `dep:proptest` entry).
     if let Some(features) = doc.get_mut("features") {
         if let Some(table) = features.as_table_like_mut() {
+            // Define `proptest = ["dep:proptest"]` if not already present.
+            if !table.contains_key("proptest") {
+                let mut arr = toml_edit::Array::new();
+                arr.push("dep:proptest");
+                table.insert("proptest", Item::Value(Value::Array(arr)));
+            }
+
+            // Have `test-support` enable the `proptest` feature. Drop any bare
+            // `dep:proptest` entry (which would suppress the implicit feature) and
+            // avoid duplicating the `proptest` entry.
             if let Some(test_support) = table.get_mut("test-support") {
                 if let Some(arr) = test_support.as_array_mut() {
-                    // Check if dep:proptest is already there
-                    let has_proptest = arr.iter().any(|v| v.as_str() == Some("dep:proptest"));
-                    if !has_proptest {
-                        arr.push("dep:proptest");
+                    let mut new_arr = toml_edit::Array::new();
+                    let mut has_feature = false;
+                    for v in arr.iter() {
+                        match v.as_str() {
+                            Some("dep:proptest") => continue,
+                            Some("proptest") => {
+                                has_feature = true;
+                                new_arr.push(v.clone());
+                            }
+                            _ => new_arr.push(v.clone()),
+                        }
                     }
+                    if !has_feature {
+                        new_arr.push("proptest");
+                    }
+                    *arr = new_arr;
                 }
             }
         }
