@@ -819,7 +819,11 @@ fn add_custom_cfg_lints(doc: &mut DocumentMut, crate_name: &str) {
     let check_cfgs: &[&str] = match crate_name {
         "ztracing" => &["cfg(ztracing)", "cfg(ztracing_with_memory)"],
         "util_macros" => &["cfg(perf_enabled)"],
-        "gpui" => &["cfg(rust_analyzer)"],
+        // proptest is an optional dependency; the transform rewrites its
+        // `test-support` activation to `dep:proptest`, which suppresses the
+        // implicit `proptest` feature. gpui source still uses
+        // `#[cfg(feature = "proptest")]`, so declare it as an expected value.
+        "gpui" => &["cfg(rust_analyzer)", "cfg(feature, values(\"proptest\"))"],
         // objc crate macros use cargo-clippy cfg
         "gpui_macos" => &["cfg(feature, values(\"cargo-clippy\"))"],
         // nightly_coverage feature for code coverage
