@@ -798,15 +798,24 @@ fn add_proptest_dependency(doc: &mut DocumentMut) {
         doc.insert("dev-dependencies", Item::Table(dev_deps));
     }
 
-    // Add dep:proptest to test-support feature
+    // Add a plain `proptest` reference to the test-support feature.
+    //
+    // proptest is registered above as an optional dependency. Referencing it as a
+    // plain feature entry (rather than `dep:proptest`) keeps Cargo's implicit
+    // `proptest` feature, which the source code relies on via
+    // `#[cfg(feature = "proptest")]` (e.g. gpui's src/color.rs). Using `dep:`
+    // syntax would suppress that implicit feature, making the cfg an "unexpected
+    // cfg condition value" — a warning that becomes a hard error under the
+    // sync workflow's `RUSTFLAGS: -Dwarnings`. This mirrors upstream zed, which
+    // also lists a bare `proptest` in its test-support feature.
     if let Some(features) = doc.get_mut("features") {
         if let Some(table) = features.as_table_like_mut() {
             if let Some(test_support) = table.get_mut("test-support") {
                 if let Some(arr) = test_support.as_array_mut() {
-                    // Check if dep:proptest is already there
-                    let has_proptest = arr.iter().any(|v| v.as_str() == Some("dep:proptest"));
+                    // Check if proptest is already there
+                    let has_proptest = arr.iter().any(|v| v.as_str() == Some("proptest"));
                     if !has_proptest {
-                        arr.push("dep:proptest");
+                        arr.push("proptest");
                     }
                 }
             }
