@@ -6,24 +6,30 @@ Fully automated standalones release of [gpui](https://github.com/zed-industries/
 
 ```toml
 [dependencies]
-gpui-unofficial = "0.230"
+gpui-unofficial = "1.7"   # pick the version matching the Zed release you want
 ```
 
-Versions track Zed releases: Zed `v0.230.1` becomes `gpui-unofficial` version `0.230.1`.
+Versions mirror Zed's release tags: Zed `v1.7.2` publishes as `gpui-unofficial`
+version `1.7.2`. The platform backends are pulled in by `gpui-unofficial`, so
+this single dependency is all you need to get started.
+
+Because the version is taken verbatim from Zed's semver, there is currently no
+way to publish a fix for an already-released version without a version suffix —
+a known limitation.
 
 ## Crates
 
 | Crate | Description |
 |-------|-------------|
 | `gpui-unofficial` | Main framework |
-| `gpui-macros-unofficial` | Derive macros |
-| `gpui-platform-unofficial` | Platform abstraction |
-| `gpui-macos-unofficial` | macOS backend |
-| `gpui-linux-unofficial` | Linux backend |
-| `gpui-windows-unofficial` | Windows backend |
-| `gpui-web-unofficial` | Web/WASM backend |
+| `gpui-macros-gpui-unofficial` | Derive macros |
+| `gpui-platform-gpui-unofficial` | Platform abstraction |
+| `gpui-macos-gpui-unofficial` | macOS backend |
+| `gpui-linux-gpui-unofficial` | Linux backend |
+| `gpui-windows-gpui-unofficial` | Windows backend |
+| `gpui-web-gpui-unofficial` | Web/WASM backend |
 
-Plus supporting crates: `collections-unofficial`, `scheduler-unofficial`, `refineable-unofficial`, etc.
+Plus supporting crates: `collections-gpui-unofficial`, `scheduler-gpui-unofficial`, `refineable-gpui-unofficial`, etc.
 
 ## How It Works
 
