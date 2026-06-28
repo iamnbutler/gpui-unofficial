@@ -46,8 +46,8 @@ jobs:
           echo "Latest zed tag: $LATEST_TAG"
 
           # Check if we already have this release branch
-          if git ls-remote --heads origin "release/${LATEST_TAG#v}" | grep -q .; then
-            echo "Already have release branch for $LATEST_TAG"
+          if cargo xtask verify --tag "$LATEST_TAG"; then
+            echo "Release already complete for $LATEST_TAG"
             echo "new_release=false" >> $GITHUB_OUTPUT
             exit 0
           fi
