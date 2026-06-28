@@ -1,7 +1,7 @@
 mod bump;
 mod publish;
 mod transform;
-mod verify;                        // ← add this
+mod verify;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -18,12 +18,16 @@ struct Cli {
 enum Commands {
     /// Transform zed's gpui crates for standalone publishing
     Transform {
+        /// Zed git tag to transform (e.g., v0.185.0)
         #[arg(long)]
         zed_tag: String,
+        /// Path to local zed repo (optional, will clone if not provided)
         #[arg(long)]
         zed_path: Option<String>,
+        /// Output directory for transformed crates (default: ./crates)
         #[arg(long, default_value = "crates")]
         output: String,
+        /// Use path dependencies for local testing (instead of version deps)
         #[arg(long)]
         local: bool,
     },
@@ -94,7 +98,7 @@ fn main() -> Result<()> {
             Ok(())
         }
 
-        Commands::Verify { tag, repo, verbose } => {   // ← add this arm
+        Commands::Verify { tag, repo, verbose } => {
             let complete = verify::run(&tag, &repo, None, verbose)?;
             if !complete {
                 std::process::exit(1);
