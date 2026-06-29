@@ -22,7 +22,7 @@
 [![zlog-gpui-unofficial](https://img.shields.io/crates/v/zlog-gpui-unofficial.svg?label=zlog-gpui-unofficial)](https://crates.io/crates/zlog-gpui-unofficial)
 [![util-gpui-unofficial](https://img.shields.io/crates/v/util-gpui-unofficial.svg?label=util-gpui-unofficial)](https://crates.io/crates/util-gpui-unofficial)
 [![util-macros-gpui-unofficial](https://img.shields.io/crates/v/util-macros-gpui-unofficial.svg?label=util-macros-gpui-unofficial)](https://crates.io/crates/util-macros-gpui-unofficial)
-[![tooling-perf-gpui-unofficial](https://img.shields.io/crates/v/perf-gpui-unofficial.svg?label=tooling-perf-gpui-unofficial)](https://crates.io/crates/perf-gpui-unofficial)
+[![perf-gpui-unofficial](https://img.shields.io/crates/v/perf-gpui-unofficial.svg?label=tooling-perf-gpui-unofficial)](https://crates.io/crates/perf-gpui-unofficial)
 [![refineable-gpui-unofficial](https://img.shields.io/crates/v/refineable-gpui-unofficial.svg?label=refineable-gpui-unofficial)](https://crates.io/crates/refineable-gpui-unofficial)
 [![derive-refineable-gpui-unofficial](https://img.shields.io/crates/v/derive-refineable-gpui-unofficial.svg?label=derive-refineable-gpui-unofficial)](https://crates.io/crates/derive-refineable-gpui-unofficial)
 [![collections-gpui-unofficial](https://img.shields.io/crates/v/collections-gpui-unofficial.svg?label=collections-gpui-unofficial)](https://crates.io/crates/collections-gpui-unofficial)
