@@ -1,5 +1,34 @@
 # gpui-unofficial
 
+[![gpui-unofficial](https://img.shields.io/crates/v/gpui-unofficial.svg?label=gpui-unofficial)](https://crates.io/crates/gpui-unofficial)
+[![gpui-platform-gpui-unofficial](https://img.shields.io/crates/v/gpui-platform-gpui-unofficial.svg?label=gpui-platform-gpui-unofficial)](https://crates.io/crates/gpui-platform-gpui-unofficial)
+
+[![gpui-wgpu-gpui-unofficial](https://img.shields.io/crates/v/gpui-wgpu-gpui-unofficial.svg?label=gpui-wgpu-gpui-unofficial)](https://crates.io/crates/gpui-wgpu-gpui-unofficial)
+[![gpui-macos-gpui-unofficial](https://img.shields.io/crates/v/gpui-macos-gpui-unofficial.svg?label=gpui-macos-gpui-unofficial)](https://crates.io/crates/gpui-macos-gpui-unofficial)
+[![gpui-linux-gpui-unofficial](https://img.shields.io/crates/v/gpui-linux-gpui-unofficial.svg?label=gpui-linux-gpui-unofficial)](https://crates.io/crates/gpui-linux-gpui-unofficial)
+[![gpui-windows-gpui-unofficial](https://img.shields.io/crates/v/gpui-windows-gpui-unofficial.svg?label=gpui-windows-gpui-unofficial)](https://crates.io/crates/gpui-windows-gpui-unofficial)
+[![gpui-web-gpui-unofficial](https://img.shields.io/crates/v/gpui-web-gpui-unofficial.svg?label=gpui-web-gpui-unofficial)](https://crates.io/crates/gpui-web-gpui-unofficial)
+
+[![gpui-macros-gpui-unofficial](https://img.shields.io/crates/v/gpui-macros-gpui-unofficial.svg?label=gpui-macros-gpui-unofficial)](https://crates.io/crates/gpui-macros-gpui-unofficial)
+[![media-gpui-unofficial](https://img.shields.io/crates/v/media-gpui-unofficial.svg?label=media-gpui-unofficial)](https://crates.io/crates/media-gpui-unofficial)
+[![reqwest-client-gpui-unofficial](https://img.shields.io/crates/v/reqwest-client-gpui-unofficial.svg?label=reqwest-client-gpui-unofficial)](https://crates.io/crates/reqwest-client-gpui-unofficial)
+[![http-client-tls-gpui-unofficial](https://img.shields.io/crates/v/http-client-tls-gpui-unofficial.svg?label=http-client-tls-gpui-unofficial)](https://crates.io/crates/http-client-tls-gpui-unofficial)
+[![http-client-gpui-unofficial](https://img.shields.io/crates/v/http-client-gpui-unofficial.svg?label=http-client-gpui-unofficial)](https://crates.io/crates/http-client-gpui-unofficial)
+[![sum-tree-gpui-unofficial](https://img.shields.io/crates/v/sum-tree-gpui-unofficial.svg?label=sum-tree-gpui-unofficial)](https://crates.io/crates/sum-tree-gpui-unofficial)
+[![scheduler-gpui-unofficial](https://img.shields.io/crates/v/scheduler-gpui-unofficial.svg?label=scheduler-gpui-unofficial)](https://crates.io/crates/scheduler-gpui-unofficial)
+
+[![ztracing-gpui-unofficial](https://img.shields.io/crates/v/ztracing-gpui-unofficial.svg?label=ztracing-gpui-unofficial)](https://crates.io/crates/ztracing-gpui-unofficial)
+[![ztracing-macro-gpui-unofficial](https://img.shields.io/crates/v/ztracing-macro-gpui-unofficial.svg?label=ztracing-macro-gpui-unofficial)](https://crates.io/crates/ztracing-macro-gpui-unofficial)
+[![zlog-gpui-unofficial](https://img.shields.io/crates/v/zlog-gpui-unofficial.svg?label=zlog-gpui-unofficial)](https://crates.io/crates/zlog-gpui-unofficial)
+[![util-gpui-unofficial](https://img.shields.io/crates/v/util-gpui-unofficial.svg?label=util-gpui-unofficial)](https://crates.io/crates/util-gpui-unofficial)
+[![util-macros-gpui-unofficial](https://img.shields.io/crates/v/util-macros-gpui-unofficial.svg?label=util-macros-gpui-unofficial)](https://crates.io/crates/util-macros-gpui-unofficial)
+[![tooling-perf-gpui-unofficial](https://img.shields.io/crates/v/perf-gpui-unofficial.svg?label=tooling-perf-gpui-unofficial)](https://crates.io/crates/perf-gpui-unofficial)
+[![refineable-gpui-unofficial](https://img.shields.io/crates/v/refineable-gpui-unofficial.svg?label=refineable-gpui-unofficial)](https://crates.io/crates/refineable-gpui-unofficial)
+[![derive-refineable-gpui-unofficial](https://img.shields.io/crates/v/derive-refineable-gpui-unofficial.svg?label=derive-refineable-gpui-unofficial)](https://crates.io/crates/derive-refineable-gpui-unofficial)
+[![collections-gpui-unofficial](https://img.shields.io/crates/v/collections-gpui-unofficial.svg?label=collections-gpui-unofficial)](https://crates.io/crates/collections-gpui-unofficial)
+[![gpui-shared-string-gpui-unofficial](https://img.shields.io/crates/v/gpui-shared-string-gpui-unofficial.svg?label=gpui-shared-string-gpui-unofficial)](https://crates.io/crates/gpui-shared-string-gpui-unofficial)
+[![gpui-util-gpui-unofficial](https://img.shields.io/crates/v/gpui-util-gpui-unofficial.svg?label=gpui-util-gpui-unofficial)](https://crates.io/crates/gpui-util-gpui-unofficial)
+
 Fully automated standalones release of [gpui](https://github.com/zed-industries/zed/tree/main/crates/gpui) on each new Zed release tag.
 
 ## Usage
