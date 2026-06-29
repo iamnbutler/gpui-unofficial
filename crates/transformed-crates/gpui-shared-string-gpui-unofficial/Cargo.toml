@@ -1,0 +1,17 @@
+[package]
+name = "gpui-shared-string-gpui-unofficial"
+version = "1.8.2"
+edition = "2024"
+repository = "https://github.com/iamnbutler/gpui-unofficial"
+license = "Apache-2.0"
+description = "Unofficial release of Zed's gpui_shared_string crate"
+
+[lib]
+path = "gpui_shared_string.rs"
+
+[dependencies]
+schemars = { version = "1.0", features = ["indexmap2"] }
+serde = { version = "1.0.221", features = ["derive", "rc"] }
+smol_str = "0.3.6"
+
+[workspace]
