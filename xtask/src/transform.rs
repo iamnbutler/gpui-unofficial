@@ -15,6 +15,7 @@ pub const CRATE_PUBLISH_ORDER: &[&str] = &[
     "refineable/derive_refineable",
     "refineable",
     "tooling/perf",
+    "path",
     "util_macros",
     "util",
     "zlog",
