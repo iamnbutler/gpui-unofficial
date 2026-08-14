@@ -164,9 +164,12 @@ fn transform_crate(
     // Copy crate directory
     copy_dir_recursive(&src_dir, &dest_dir)?;
 
-    // Patch examples that reference external assets
+    // Patch sources and examples that reference assets outside their crate.
     if crate_name == "gpui" {
         patch_text_example(&dest_dir)?;
+    }
+    if crate_name == "gpui_web" {
+        package_gpui_web_fonts(zed_dir, &dest_dir)?;
     }
 
     // Transform Cargo.toml
@@ -715,6 +718,38 @@ fn patch_gpui_macos_source(crate_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Make gpui_web's bundled fonts self-contained in the published crate.
+///
+/// Upstream resolves these files from Zed's repository-root `assets` directory.
+/// That directory is outside `crates/gpui_web`, so copying the crate alone leaves
+/// `include_bytes!` pointing at files that Cargo cannot package.
+fn package_gpui_web_fonts(zed_dir: &Path, crate_dir: &Path) -> Result<()> {
+    let source_fonts = zed_dir.join("assets/fonts");
+    if !source_fonts.is_dir() {
+        bail!("gpui_web font assets not found: {}", source_fonts.display());
+    }
+
+    copy_dir_recursive(&source_fonts, &crate_dir.join("assets/fonts"))?;
+
+    let platform_rs = crate_dir.join("src/platform.rs");
+    let content = fs::read_to_string(&platform_rs)
+        .with_context(|| format!("Failed to read {}", platform_rs.display()))?;
+    let external_prefix = "../../../assets/fonts/";
+    if !content.contains(external_prefix) {
+        bail!(
+            "gpui_web no longer references fonts through {external_prefix}; update the packaging transform"
+        );
+    }
+
+    fs::write(
+        &platform_rs,
+        content.replace(external_prefix, "../assets/fonts/"),
+    )?;
+    println!("  Packaged gpui_web font assets");
+
+    Ok(())
+}
+
 /// Patch text.rs example to remove external font dependency.
 /// The example uses include_bytes! for a font file outside the crate.
 fn patch_text_example(crate_dir: &Path) -> Result<()> {
@@ -1001,5 +1036,37 @@ test-support = ["collections/test-support", "rand"]
             "test-support must not reference dep:proptest directly"
         );
     }
-}
 
+    #[test]
+    fn packages_gpui_web_fonts_inside_the_crate() {
+        let zed = tempfile::tempdir().unwrap();
+        let crate_dir = tempfile::tempdir().unwrap();
+
+        let source_fonts = zed.path().join("assets/fonts/family");
+        fs::create_dir_all(&source_fonts).unwrap();
+        fs::write(source_fonts.join("Regular.ttf"), b"font bytes").unwrap();
+        fs::write(source_fonts.join("LICENSE.txt"), b"font license").unwrap();
+
+        let source_dir = crate_dir.path().join("src");
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::write(
+            source_dir.join("platform.rs"),
+            r#"static FONT: &[u8] = include_bytes!("../../../assets/fonts/family/Regular.ttf");"#,
+        )
+        .unwrap();
+
+        package_gpui_web_fonts(zed.path(), crate_dir.path()).unwrap();
+
+        let platform = fs::read_to_string(source_dir.join("platform.rs")).unwrap();
+        assert!(platform.contains(r#"include_bytes!("../assets/fonts/family/Regular.ttf")"#));
+        assert!(!platform.contains("../../../assets/fonts/"));
+        assert_eq!(
+            fs::read(crate_dir.path().join("assets/fonts/family/Regular.ttf")).unwrap(),
+            b"font bytes"
+        );
+        assert_eq!(
+            fs::read(crate_dir.path().join("assets/fonts/family/LICENSE.txt")).unwrap(),
+            b"font license"
+        );
+    }
+}
