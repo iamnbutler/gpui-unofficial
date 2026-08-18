@@ -207,7 +207,12 @@ jobs:
             --local
 
       - name: Cargo check (web)
-        run: cargo check --target wasm32-unknown-unknown -p gpui-web-unofficial
+        run: |
+          cd crates/gpui-web
+          cargo +nightly -Zbuild-std=std,panic_abort check --target wasm32-unknown-unknown
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS: -C target-feature=+atomics,+bulk-memory,+mutable-globals
+          RUSTC_BOOTSTRAP: '1'
 
   build-examples-linux:
     needs: [check-release, check-linux, check-macos, check-windows]
@@ -320,7 +325,10 @@ jobs:
       - name: Build examples (web)
         run: |
           cd crates/gpui-unofficial
-          cargo build --target wasm32-unknown-unknown --examples
+          cargo +nightly build --target wasm32-unknown-unknown --examples
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS: -C target-feature=+atomics,+bulk-memory,+mutable-globals
+          RUSTC_BOOTSTRAP: '1'
 
   build-examples-windows:
     needs: [check-release, check-linux, check-macos, check-windows]
