@@ -575,8 +575,20 @@ fn resolve_workspace_dep(workspace_def: &Item, usage: &Item) -> Result<Option<It
     Ok(Some(result))
 }
 
+/// Does a `[features]` array entry activate `dep_name`?
+///
+/// Covers every form Cargo accepts: a bare `"dep_name"`, the explicit
+/// `"dep:dep_name"`, and the `"dep_name/feature"` / `"dep_name?/feature"`
+/// forms. Missing the `dep:` form leaves a dangling reference behind when the
+/// dep itself is dropped, and Cargo refuses to parse the manifest at all:
+/// "feature `x` includes `dep:y`, but `y` is not listed as a dependency".
+fn feature_entry_refers_to_dep(entry: &str, dep_name: &str) -> bool {
+    let entry = entry.strip_prefix("dep:").unwrap_or(entry);
+    let name = entry.split('/').next().unwrap_or(entry);
+    name.trim_end_matches('?') == dep_name
+}
+
 /// Remove all references to a dep from the `[features]` section.
-/// Handles both bare `"dep_name"` activations and `"dep_name/feature"` entries.
 pub(crate) fn remove_dep_from_features(doc: &mut DocumentMut, dep_name: &str) {
     // Phase 1: collect which features need a new array
     let mut modifications: Vec<(String, toml_edit::Array)> = Vec::new();
@@ -592,7 +604,7 @@ pub(crate) fn remove_dep_from_features(doc: &mut DocumentMut, dep_name: &str) {
                     let mut changed = false;
                     for v in arr.iter() {
                         if let Some(s) = v.as_str() {
-                            if s == dep_name || s.starts_with(&format!("{dep_name}/")) {
+                            if feature_entry_refers_to_dep(s, dep_name) {
                                 changed = true;
                                 continue;
                             }
@@ -938,6 +950,50 @@ fn write_metadata(output_dir: &Path, zed_tag: &str, zed_dir: &Path) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// zed's `http_client` declares `async-tar` as an optional *git-only*
+    /// workspace dep, so the transform drops it — but `github-download` still
+    /// activates it as `"dep:async-tar"`. Leaving that entry behind makes Cargo
+    /// reject the manifest outright ("feature `github-download` includes
+    /// `dep:async-tar`, but `async-tar` is not listed as a dependency"), which
+    /// fails `cargo check` on every platform.
+    #[test]
+    fn removes_dep_prefixed_feature_entries() {
+        let mut doc: DocumentMut = r#"
+[features]
+github-download = ["dep:async-fs", "dep:async-tar", "dep:sha2"]
+"#
+        .parse()
+        .unwrap();
+
+        remove_dep_from_features(&mut doc, "async-tar");
+
+        let entries: Vec<String> = doc["features"]["github-download"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect();
+        assert_eq!(entries, vec!["dep:async-fs", "dep:sha2"]);
+    }
+
+    /// The other activation forms must keep working, and a dep whose name is a
+    /// prefix of another must not drag its neighbour out with it.
+    #[test]
+    fn matches_every_activation_form_without_overreaching() {
+        for entry in ["async-tar", "dep:async-tar", "async-tar/unstable", "async-tar?/unstable"] {
+            assert!(
+                feature_entry_refers_to_dep(entry, "async-tar"),
+                "{entry} should match async-tar"
+            );
+        }
+        for entry in ["dep:async-tar-extra", "async-fs", "dep:async-fs", "async-tar-extra/x"] {
+            assert!(
+                !feature_entry_refers_to_dep(entry, "async-tar"),
+                "{entry} should not match async-tar"
+            );
+        }
+    }
 
     /// After `transform_dependencies` strips the git-only optional `proptest`
     /// dep and `remove_dep_from_features` removes the bare `proptest` from
