@@ -358,7 +358,7 @@ jobs:
 
   # Only publish job creates orphan branch with version deps
   publish:
-    needs: [check-release, build-examples-linux, build-examples-macos, build-examples-windows]
+    needs: [check-release, build-examples-linux, build-examples-macos, build-examples-windows, build-examples-web]
     runs-on: ubuntu-latest
     permissions:
       contents: write
