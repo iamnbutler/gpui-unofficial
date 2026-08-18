@@ -182,11 +182,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install wasm target
-        run: rustup target add wasm32-unknown-unknown
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+          targets: wasm32-unknown-unknown
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -208,8 +208,8 @@ jobs:
 
       - name: Cargo check (web)
         run: |
-          cd crates/gpui_web
-          cargo +nightly -Zbuild-std=std,panic_abort check --target wasm32-unknown-unknown
+          cd crates/gpui-web-gpui-unofficial
+          cargo -Zbuild-std=std,panic_abort check --target wasm32-unknown-unknown
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS: -C target-feature=+atomics,+bulk-memory,+mutable-globals
           RUSTC_BOOTSTRAP: '1'
@@ -298,11 +298,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install wasm target
-        run: rustup target add wasm32-unknown-unknown
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+          targets: wasm32-unknown-unknown
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -325,7 +325,7 @@ jobs:
       - name: Build examples (web)
         run: |
           cd crates/gpui-unofficial
-          cargo +nightly build --target wasm32-unknown-unknown --examples
+          cargo -Zbuild-std=std,panic_abort build --target wasm32-unknown-unknown --examples
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS: -C target-feature=+atomics,+bulk-memory,+mutable-globals
           RUSTC_BOOTSTRAP: '1'
