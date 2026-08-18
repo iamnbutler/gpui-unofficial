@@ -2,9 +2,12 @@ mod bump;
 mod publish;
 mod transform;
 mod verify;
+mod version;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+
+use crate::version::VersionIndex;
 
 #[derive(Parser)]
 #[command(name = "xtask")]
@@ -30,6 +33,10 @@ enum Commands {
         /// Use path dependencies for local testing (instead of version deps)
         #[arg(long)]
         local: bool,
+        /// Release version to stamp on the crates (e.g. 1.16.0-0). Defaults to
+        /// revision 0 of the zed tag. See `resolve-version`.
+        #[arg(long)]
+        release_version: Option<String>,
     },
 
     /// Publish crates to crates.io in dependency order
@@ -51,6 +58,31 @@ enum Commands {
     PatchOnly {
         #[arg(long, default_value = "crates")]
         crates_dir: String,
+    },
+
+    /// Print the version to publish for a zed tag, e.g. `1.16.0-0`.
+    ///
+    /// Every release carries a revision counter in the pre-release field so we
+    /// can ship a fix without waiting for — or colliding with — zed's next tag.
+    /// The counter is read back off crates.io, so this is the single source of
+    /// truth for CI:
+    ///
+    ///   VERSION=$(cargo xtask resolve-version --zed-tag v1.16.0)
+    ResolveVersion {
+        /// Zed git tag to release (e.g. v1.16.0)
+        #[arg(long)]
+        zed_tag: String,
+        /// Allocate a new revision above everything published — a hotfix of an
+        /// already-released zed tag. Without this the highest published
+        /// revision is re-used, so an interrupted release resumes in place.
+        #[arg(long)]
+        bump: bool,
+        /// Use this exact revision instead of consulting crates.io
+        #[arg(long, conflicts_with = "bump")]
+        revision: Option<u32>,
+        /// Crate whose published versions define the revision counter
+        #[arg(long, default_value = "gpui-unofficial")]
+        index_crate: String,
     },
 
     /// List crates in publish order
@@ -79,8 +111,8 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Transform { zed_tag, zed_path, output, local } =>
-            transform::run(&zed_tag, zed_path.as_deref(), &output, local),
+        Commands::Transform { zed_tag, zed_path, output, local, release_version } =>
+            transform::run(&zed_tag, zed_path.as_deref(), &output, local, release_version.as_deref()),
 
         Commands::Publish { dry_run, crates_dir } =>
             publish::run(&crates_dir, dry_run),
@@ -90,6 +122,38 @@ fn main() -> Result<()> {
 
         Commands::PatchOnly { crates_dir } =>
             publish::patch_only(&crates_dir),
+
+        Commands::ResolveVersion { zed_tag, bump, revision, index_crate } => {
+            let mode = match (revision, bump) {
+                (Some(revision), _) => version::RevisionMode::Exact(revision),
+                (None, true) => version::RevisionMode::Bump,
+                (None, false) => version::RevisionMode::Reuse,
+            };
+            let published = match mode {
+                // An explicit revision needs no lookup, which also makes the
+                // command usable offline.
+                version::RevisionMode::Exact(_) => Vec::new(),
+                _ => version::SparseIndex.published_versions(&index_crate)?,
+            };
+            let resolved = version::resolve(&zed_tag, &published, mode);
+            eprintln!(
+                "zed {zed_tag} -> {resolved} (revisions published: {:?})",
+                version::revisions_for(&published, &resolved.upstream)
+            );
+            if resolved.revision == 0 && published.contains(&resolved.upstream) {
+                // `x.y.z-0` sorts *below* a bare `x.y.z`, so cargo would never
+                // offer it to anyone already on that release.
+                eprintln!(
+                    "warning: {} was published before the revision scheme; {resolved} would sort \
+                     below it and reach nobody. Fixes to pre-scheme releases have to wait for \
+                     zed's next tag — see docs/versioning.md.",
+                    resolved.upstream
+                );
+            }
+            // stdout carries only the version, for `$(...)` in CI.
+            println!("{resolved}");
+            Ok(())
+        }
 
         Commands::ListCrates => {
             for crate_name in transform::CRATE_PUBLISH_ORDER {

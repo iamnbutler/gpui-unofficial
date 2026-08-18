@@ -50,8 +50,18 @@ pub fn unofficial_name(name: &str) -> String {
     format!("{kebab}-gpui-unofficial")
 }
 
-pub fn run(zed_tag: &str, zed_path: Option<&str>, output_dir: &str, use_local_deps: bool) -> Result<()> {
-    println!("Transforming gpui from zed tag: {zed_tag}");
+pub fn run(
+    zed_tag: &str,
+    zed_path: Option<&str>,
+    output_dir: &str,
+    use_local_deps: bool,
+    release_version: Option<&str>,
+) -> Result<()> {
+    let version = match release_version {
+        Some(version) => version.to_string(),
+        None => default_release_version(zed_tag),
+    };
+    println!("Transforming gpui from zed tag: {zed_tag} as version {version}");
     if use_local_deps {
         println!("Using path dependencies for local testing");
     }
@@ -81,11 +91,11 @@ pub fn run(zed_tag: &str, zed_path: Option<&str>, output_dir: &str, use_local_de
     // Transform each crate
     for crate_name in CRATE_PUBLISH_ORDER {
         println!("Transforming: {crate_name}");
-        transform_crate(&zed_dir, &output_path, crate_name, &workspace_deps, zed_tag, use_local_deps)?;
+        transform_crate(&zed_dir, &output_path, crate_name, &workspace_deps, &version, use_local_deps)?;
     }
 
     // Write metadata file
-    write_metadata(&output_path, zed_tag, &zed_dir)?;
+    write_metadata(&output_path, zed_tag, &version, &zed_dir)?;
 
     println!("\nTransform complete! Crates written to: {output_dir}");
     println!("Run 'cargo build --workspace' to verify.");
@@ -143,7 +153,7 @@ fn transform_crate(
     output_dir: &Path,
     crate_path: &str,
     workspace_deps: &HashMap<String, Item>,
-    zed_tag: &str,
+    version: &str,
     use_local_deps: bool,
 ) -> Result<()> {
     // Handle paths that start with "tooling/" specially
@@ -170,7 +180,7 @@ fn transform_crate(
     }
 
     // Transform Cargo.toml
-    transform_cargo_toml(&dest_dir, output_dir, crate_name, workspace_deps, zed_tag, use_local_deps)?;
+    transform_cargo_toml(&dest_dir, output_dir, crate_name, workspace_deps, version, use_local_deps)?;
 
     // Patch source files for specific crates to remove inspector feature references
     if crate_name == "gpui_macros" || crate_name == "gpui" {
@@ -211,7 +221,7 @@ fn transform_cargo_toml(
     output_dir: &Path,
     original_name: &str,
     workspace_deps: &HashMap<String, Item>,
-    zed_tag: &str,
+    version: &str,
     use_local_deps: bool,
 ) -> Result<()> {
     let cargo_toml_path = crate_dir.join("Cargo.toml");
@@ -219,7 +229,6 @@ fn transform_cargo_toml(
     let mut doc: DocumentMut = content.parse()?;
 
     let unofficial = unofficial_name(original_name);
-    let version = zed_tag_to_version(zed_tag);
 
     // Update [package] section
     if let Some(package) = doc.get_mut("package") {
@@ -228,7 +237,7 @@ fn transform_cargo_toml(
             table.insert("name", toml_edit::value(&unofficial));
 
             // Set version
-            table.insert("version", toml_edit::value(&version));
+            table.insert("version", toml_edit::value(version));
 
             // Remove workspace inheritance for edition, use explicit
             if table.get("edition").is_some_and(|v| v.as_table_like().is_some()) {
@@ -282,7 +291,7 @@ fn transform_cargo_toml(
                 if use_local_deps {
                     dep.insert("path", "../gpui-platform-gpui-unofficial".into());
                 } else {
-                    dep.insert("version", version.clone().into());
+                    dep.insert("version", version.into());
                 }
                 table.insert("gpui_platform", Item::Value(Value::InlineTable(dep)));
             }
@@ -291,9 +300,9 @@ fn transform_cargo_toml(
 
     // Transform dependencies, collecting any optional deps that get removed (git-only, no crates.io equiv)
     let mut removed_optionals: Vec<String> = Vec::new();
-    transform_dependencies(&mut doc, "dependencies", workspace_deps, &version, output_dir, use_local_deps, &mut removed_optionals)?;
-    transform_dependencies(&mut doc, "dev-dependencies", workspace_deps, &version, output_dir, use_local_deps, &mut removed_optionals)?;
-    transform_dependencies(&mut doc, "build-dependencies", workspace_deps, &version, output_dir, use_local_deps, &mut removed_optionals)?;
+    transform_dependencies(&mut doc, "dependencies", workspace_deps, version, output_dir, use_local_deps, &mut removed_optionals)?;
+    transform_dependencies(&mut doc, "dev-dependencies", workspace_deps, version, output_dir, use_local_deps, &mut removed_optionals)?;
+    transform_dependencies(&mut doc, "build-dependencies", workspace_deps, version, output_dir, use_local_deps, &mut removed_optionals)?;
 
     // Handle target-specific dependencies
     if let Some(target) = doc.get_mut("target") {
@@ -309,7 +318,7 @@ fn transform_cargo_toml(
                                 let mut temp_doc = DocumentMut::new();
                                 if let Some(deps) = table.get(dep_section).cloned() {
                                     temp_doc.insert(dep_section, deps);
-                                    transform_dependencies(&mut temp_doc, dep_section, workspace_deps, &version, output_dir, use_local_deps, &mut removed_optionals)?;
+                                    transform_dependencies(&mut temp_doc, dep_section, workspace_deps, version, output_dir, use_local_deps, &mut removed_optionals)?;
                                     if let Some(new_deps) = temp_doc.get(dep_section).cloned() {
                                         table.insert(dep_section, new_deps);
                                     }
@@ -909,12 +918,15 @@ pub(crate) fn lookup_crates_io_version(package: &str) -> Option<String> {
     None
 }
 
-fn zed_tag_to_version(tag: &str) -> String {
-    // Convert "v0.185.0" to "0.185.0"
-    tag.strip_prefix('v').unwrap_or(tag).to_string()
+/// Version to publish when the caller did not resolve one: revision 0 of the
+/// zed tag (`v1.16.0` -> `1.16.0-0`). See [`crate::version`] for why every
+/// release carries a revision.
+fn default_release_version(zed_tag: &str) -> String {
+    let (upstream, revision) = crate::version::split_revision(zed_tag);
+    crate::version::ReleaseVersion::new(upstream, revision.unwrap_or(0)).to_string()
 }
 
-fn write_metadata(output_dir: &Path, zed_tag: &str, zed_dir: &Path) -> Result<()> {
+fn write_metadata(output_dir: &Path, zed_tag: &str, version: &str, zed_dir: &Path) -> Result<()> {
     // Get commit SHA
     let output = Command::new("git")
         .args(["rev-parse", "HEAD"])
@@ -924,6 +936,7 @@ fn write_metadata(output_dir: &Path, zed_tag: &str, zed_dir: &Path) -> Result<()
 
     let metadata = serde_json::json!({
         "zed_tag": zed_tag,
+        "version": version,
         "zed_commit": sha,
         "transformed_at": chrono::Utc::now().to_rfc3339(),
         "crates": CRATE_PUBLISH_ORDER,
@@ -938,6 +951,16 @@ fn write_metadata(output_dir: &Path, zed_tag: &str, zed_dir: &Path) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_unresolved_tag_transforms_to_revision_zero() {
+        assert_eq!(default_release_version("v1.16.0"), "1.16.0-0");
+        assert_eq!(default_release_version("1.16.0"), "1.16.0-0");
+        // A tag that already names a revision keeps it.
+        assert_eq!(default_release_version("v1.16.0-2"), "1.16.0-2");
+        // Zed's preview tags keep their pre-release and gain a dot segment.
+        assert_eq!(default_release_version("v1.16.0-pre"), "1.16.0-pre.0");
+    }
 
     /// After `transform_dependencies` strips the git-only optional `proptest`
     /// dep and `remove_dep_from_features` removes the bare `proptest` from

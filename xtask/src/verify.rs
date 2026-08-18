@@ -2,6 +2,7 @@ use anyhow::Result;
 use std::process::Command;
 
 use crate::transform::{crate_name_from_path, unofficial_name, CRATE_PUBLISH_ORDER};
+use crate::version::{self, RevisionMode, SparseIndex, VersionIndex};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -116,14 +117,10 @@ impl ReleaseChecker for LiveChecker {
     }
 
     fn crate_version_published(&self, name: &str, version: &str) -> bool {
-        Command::new("cargo")
-            .args(["search", name, "--limit", "1"])
-            .output()
-            .ok()
-            .is_some_and(|o| {
-                let stdout = String::from_utf8_lossy(&o.stdout);
-                stdout.contains(name) && stdout.contains(version)
-            })
+        // Exact match against the index. `cargo search` only reports a crate's
+        // newest version, so it cannot see an older revision, and its output was
+        // matched by substring — `1.16.0` "found" inside `1.16.0-1`.
+        version::is_published(&SparseIndex, name, version).unwrap_or(false)
     }
 }
 
@@ -203,18 +200,58 @@ pub fn run(
     crate_versions: Option<&[(String, String)]>,
     verbose: bool,
 ) -> Result<bool> {
-    println!("Verifying release {version} in {repo}...\n");
+    let tag = resolve_tag(version)?;
+    println!("Verifying release {tag} in {repo}...\n");
 
-    let report = build_report(version, repo, crate_versions, verbose, &LiveChecker);
+    let report = build_report(&tag, repo, crate_versions, verbose, &LiveChecker);
     report.print_summary();
 
     let complete = report.is_complete();
     println!(
-        "\nRelease {version}: {}",
+        "\nRelease {tag}: {}",
         if complete { "✓ COMPLETE" } else { "✗ INCOMPLETE" }
     );
 
     Ok(complete)
+}
+
+/// Turn the tag a caller asked about into the tag we actually released.
+///
+/// A bare upstream tag (`v1.16.0`) is resolved to the newest revision published
+/// for it (`v1.16.0-2`), so CI can keep asking "is zed's latest release done?"
+/// without knowing our revision counter. A tag that already carries a revision
+/// is verified as given.
+fn resolve_tag(tag: &str) -> Result<String> {
+    if let Some(release) = version::ReleaseVersion::parse(tag) {
+        return Ok(format!("v{release}"));
+    }
+
+    let upstream = version::strip_v(tag);
+    let published = SparseIndex.published_versions("gpui-unofficial")?;
+    Ok(resolved_tag_for(upstream, &published))
+}
+
+/// The tag half of [`resolve_tag`], without the network.
+fn resolved_tag_for(upstream: &str, published: &[String]) -> String {
+    let upstream = version::strip_v(upstream);
+
+    // Releases from before the revision scheme are bare versions with no
+    // revision to find. They are complete as they stand — resolving them to
+    // `-0` would report every one of them as missing and re-release it at a
+    // version that sorts *below* what is already published.
+    if version::highest_revision(published, upstream).is_none()
+        && published.iter().any(|v| v == upstream)
+    {
+        return format!("v{upstream}");
+    }
+
+    // Otherwise `Reuse` names the newest published revision, or -0 when nothing
+    // is published for this upstream version yet — in which case every check
+    // below fails, which is the answer the caller wants.
+    format!(
+        "v{}",
+        version::resolve(upstream, published, RevisionMode::Reuse)
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -372,6 +409,52 @@ mod tests {
             .find(|c| c.name != "gpui-unofficial")
             .expect("at least one other crate");
         assert_eq!(other.version, "1.8.2");
+    }
+
+    // --- tag resolution -----------------------------------------------------
+
+    fn published(versions: &[&str]) -> Vec<String> {
+        versions.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn bare_tag_resolves_to_the_newest_published_revision() {
+        let published = published(&["1.16.0-0", "1.16.0-1"]);
+        assert_eq!(resolved_tag_for("1.16.0", &published), "v1.16.0-1");
+    }
+
+    #[test]
+    fn tag_with_a_revision_is_taken_as_given() {
+        // Checked before any index lookup, so this needs no fixture.
+        assert_eq!(
+            version::ReleaseVersion::parse("v1.16.0-1").map(|r| r.to_string()),
+            Some("1.16.0-1".to_string())
+        );
+    }
+
+    #[test]
+    fn unreleased_tag_resolves_to_revision_zero() {
+        let published = published(&["1.16.0-0"]);
+        // Nothing published for 1.17.0: the checks that follow all fail, which
+        // is how CI learns there is a release to make.
+        assert_eq!(resolved_tag_for("1.17.0", &published), "v1.17.0-0");
+    }
+
+    #[test]
+    fn pre_scheme_releases_still_verify_as_themselves() {
+        // 1.15.0 shipped before revisions existed. Resolving it to `1.15.0-0`
+        // would report it as missing and trigger a re-release below itself.
+        let published = published(&["1.14.2", "1.15.0"]);
+        assert_eq!(resolved_tag_for("1.15.0", &published), "v1.15.0");
+        assert_eq!(resolved_tag_for("v1.15.0", &published), "v1.15.0");
+    }
+
+    #[test]
+    fn a_revision_supersedes_a_bare_version_of_the_same_release() {
+        // If we ever do publish a revision on top of a pre-scheme version, that
+        // revision is the release to verify.
+        let published = published(&["1.15.0", "1.15.0-1"]);
+        assert_eq!(resolved_tag_for("1.15.0", &published), "v1.15.0-1");
     }
 
     #[test]

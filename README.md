@@ -35,16 +35,22 @@ Fully automated standalones release of [gpui](https://github.com/zed-industries/
 
 ```toml
 [dependencies]
-gpui-unofficial = "1.7"   # pick the version matching the Zed release you want
+gpui-unofficial = "1.16.0-0"   # pick the version matching the Zed release you want
 ```
 
-Versions mirror Zed's release tags: Zed `v1.7.2` publishes as `gpui-unofficial`
-version `1.7.2`. The platform backends are pulled in by `gpui-unofficial`, so
-this single dependency is all you need to get started.
+Versions mirror Zed's release tags plus a revision counter: Zed `v1.16.0`
+publishes as `gpui-unofficial` version `1.16.0-0`. The platform backends are
+pulled in by `gpui-unofficial`, so this single dependency is all you need to get
+started.
 
-Because the version is taken verbatim from Zed's semver, there is currently no
-way to publish a fix for an already-released version without a version suffix —
-a known limitation.
+The `-0` is part of the version, not decoration. It leaves us room to publish a
+fix for a release — `1.16.0-1`, `1.16.0-2` — without waiting for Zed's next tag
+or colliding with it, and Cargo picks those fixes up automatically. Moving to a
+new Zed release is a deliberate bump of the requirement. See
+[docs/versioning.md](docs/versioning.md).
+
+Releases up to `1.15.0` predate this scheme and are published as bare versions
+(`gpui-unofficial = "1.15"`).
 
 ## Crates
 
@@ -83,6 +89,13 @@ cargo xtask transform --zed-tag v0.230.1 --zed-path ../zed
 
 # Path dependencies for local testing
 cargo xtask transform --zed-tag v0.230.1 --zed-path ../zed --local
+
+# What version would we publish for this tag? (reads the counter off crates.io)
+cargo xtask resolve-version --zed-tag v0.230.1
+cargo xtask resolve-version --zed-tag v0.230.1 --bump   # next revision, for a fix
+
+# Transform at a specific release version
+cargo xtask transform --zed-tag v0.230.1 --release-version 0.230.1-1
 
 # Build
 cd crates/gpui-unofficial && cargo build

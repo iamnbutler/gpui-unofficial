@@ -7,6 +7,7 @@ use std::time::Duration;
 use toml_edit::DocumentMut;
 
 use crate::transform::{lookup_crates_io_version, remove_dep_from_features, CRATE_PUBLISH_ORDER, crate_name_from_path, unofficial_name};
+use crate::version::{is_published, SparseIndex};
 
 /// crates.io allows a burst of 5 new crates, then 1 per 10 minutes.
 /// For existing crates (version updates), the limit is more generous.
@@ -297,18 +298,20 @@ fn crate_exists_on_registry(name: &str) -> bool {
     false
 }
 
-/// Check if a specific crate version exists on crates.io
+/// Check if a specific crate version exists on crates.io.
+///
+/// Matched exactly against the index: `cargo search` reports only the newest
+/// version, and a substring match would read `1.16.0-1` as proof that plain
+/// `1.16.0` — or `1.16.0-10` — was published.
 fn crate_version_exists(name: &str, version: &str) -> bool {
-    // Use cargo info which checks the exact version
-    Command::new("cargo")
-        .args(["search", &format!("{name}"), "--limit", "1"])
-        .output()
-        .ok()
-        .is_some_and(|o| {
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            // cargo search returns: name = "version"
-            stdout.contains(name) && stdout.contains(version)
-        })
+    match is_published(&SparseIndex, name, version) {
+        Ok(exists) => exists,
+        Err(err) => {
+            // Assume not published; cargo will reject a duplicate upload anyway.
+            eprintln!("  warning: could not read crates.io index for {name}: {err}");
+            false
+        }
+    }
 }
 
 /// Run only the Cargo.toml patching step (strip git deps) without publishing.

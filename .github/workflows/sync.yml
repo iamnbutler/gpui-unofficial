@@ -9,6 +9,11 @@ on:
         description: 'Specific zed tag to sync (e.g., v0.231.2)'
         required: false
         type: string
+      hotfix:
+        description: 'Publish a new revision of an already-released zed tag (1.16.0-0 -> 1.16.0-1)'
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: sync-${{ github.ref }}
@@ -31,13 +36,21 @@ jobs:
         id: check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A hotfix releases a *new* revision of a tag we already shipped;
+          # otherwise re-use the current revision so a half-finished release
+          # resumes where it stopped instead of skipping a number.
+          REVISION_FLAG: ${{ inputs.hotfix && '--bump' || '' }}
         run: |
+          resolve() {
+            cargo xtask resolve-version --zed-tag "$1" $REVISION_FLAG
+          }
+
           if [ -n "${{ inputs.zed_tag }}" ]; then
             echo "Using manual tag: ${{ inputs.zed_tag }}"
             TAG="${{ inputs.zed_tag }}"
             echo "new_release=true" >> $GITHUB_OUTPUT
             echo "zed_tag=$TAG" >> $GITHUB_OUTPUT
-            echo "version=${TAG#v}" >> $GITHUB_OUTPUT
+            echo "version=$(resolve "$TAG")" >> $GITHUB_OUTPUT
             exit 0
           fi
 
@@ -55,7 +68,7 @@ jobs:
           echo "New release found: $LATEST_TAG"
           echo "new_release=true" >> $GITHUB_OUTPUT
           echo "zed_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
-          echo "version=${LATEST_TAG#v}" >> $GITHUB_OUTPUT
+          echo "version=$(resolve "$LATEST_TAG")" >> $GITHUB_OUTPUT
 
   # Each check job transforms with --local (path deps) independently
   # This avoids the chicken-and-egg problem of version deps not being published yet
@@ -100,6 +113,7 @@ jobs:
           cargo run -p xtask --release -- transform \
             --zed-tag ${{ needs.check-release.outputs.zed_tag }} \
             --zed-path /tmp/zed \
+            --release-version ${{ needs.check-release.outputs.version }} \
             --local
 
       - name: Cargo check
@@ -133,6 +147,7 @@ jobs:
           cargo run -p xtask --release -- transform \
             --zed-tag ${{ needs.check-release.outputs.zed_tag }} \
             --zed-path /tmp/zed \
+            --release-version ${{ needs.check-release.outputs.version }} \
             --local
 
       - name: Cargo check
@@ -168,6 +183,7 @@ jobs:
           cargo run -p xtask --release -- transform \
             --zed-tag ${{ needs.check-release.outputs.zed_tag }} \
             --zed-path /tmp/zed \
+            --release-version ${{ needs.check-release.outputs.version }} \
             --local
 
       - name: Cargo check
@@ -204,6 +220,7 @@ jobs:
           cargo run -p xtask --release -- transform \
             --zed-tag ${{ needs.check-release.outputs.zed_tag }} \
             --zed-path /tmp/zed \
+            --release-version ${{ needs.check-release.outputs.version }} \
             --local
 
       - name: Cargo check (web)
@@ -248,6 +265,7 @@ jobs:
           cargo run -p xtask --release -- transform \
             --zed-tag ${{ needs.check-release.outputs.zed_tag }} \
             --zed-path /tmp/zed \
+            --release-version ${{ needs.check-release.outputs.version }} \
             --local
 
       - name: Build examples
@@ -280,6 +298,7 @@ jobs:
           cargo run -p xtask --release -- transform \
             --zed-tag ${{ needs.check-release.outputs.zed_tag }} \
             --zed-path /tmp/zed \
+            --release-version ${{ needs.check-release.outputs.version }} \
             --local
 
       - name: Build examples
@@ -315,6 +334,7 @@ jobs:
           cargo run -p xtask --release -- transform \
             --zed-tag ${{ needs.check-release.outputs.zed_tag }} \
             --zed-path /tmp/zed \
+            --release-version ${{ needs.check-release.outputs.version }} \
             --local
 
       - name: Build examples (web)
@@ -349,6 +369,7 @@ jobs:
           cargo run -p xtask --release -- transform \
             --zed-tag ${{ needs.check-release.outputs.zed_tag }} \
             --zed-path /tmp/zed \
+            --release-version ${{ needs.check-release.outputs.version }} \
             --local
 
       - name: Build examples
@@ -383,7 +404,8 @@ jobs:
         run: |
           cargo run -p xtask --release -- transform \
             --zed-tag ${{ needs.check-release.outputs.zed_tag }} \
-            --zed-path /tmp/zed
+            --zed-path /tmp/zed \
+            --release-version ${{ needs.check-release.outputs.version }}
 
       - name: Create orphan release branch
         run: |
@@ -415,7 +437,8 @@ jobs:
           # Re-transform in current directory (we're back on main)
           cargo run -p xtask --release -- transform \
             --zed-tag ${{ needs.check-release.outputs.zed_tag }} \
-            --zed-path /tmp/zed
+            --zed-path /tmp/zed \
+            --release-version ${{ needs.check-release.outputs.version }}
 
           cargo run -p xtask --release -- publish --crates-dir crates
 
@@ -437,6 +460,11 @@ jobs:
           [dependencies]
           gpui-unofficial = \"${VERSION}\"
           \`\`\`
+
+          The \`-${VERSION##*-}\` suffix is our revision counter: it lets us publish a fix for
+          this release without waiting for zed's next tag. Requiring \`${VERSION}\` picks up
+          later revisions of the same zed release automatically. See
+          [docs/versioning.md](https://github.com/${{ github.repository }}/blob/main/docs/versioning.md).
 
           See [zed ${{ needs.check-release.outputs.zed_tag }} release notes](https://github.com/zed-industries/zed/releases/tag/${{ needs.check-release.outputs.zed_tag }})."
 

@@ -6,10 +6,16 @@ use toml_edit::DocumentMut;
 use crate::transform::{CRATE_PUBLISH_ORDER, crate_name_from_path, unofficial_name};
 
 pub fn run(crates_dir: &str, new_version: &str) -> Result<()> {
-    // Validate semver format
-    let parts: Vec<&str> = new_version.split('.').collect();
+    // Validate the release version: an x.y.z triple plus our revision suffix
+    // (see `crate::version`). Bare x.y.z is accepted for one-off manual bumps,
+    // but published releases always carry a revision.
+    let (upstream, revision) = crate::version::split_revision(new_version);
+    let parts: Vec<&str> = upstream.split('.').collect();
     if parts.len() != 3 || parts.iter().any(|p| p.parse::<u64>().is_err()) {
-        bail!("Version must be semver (x.y.z), got: {new_version}");
+        bail!("Version must be x.y.z or x.y.z-<revision>, got: {new_version}");
+    }
+    if revision.is_none() {
+        println!("Warning: {new_version} has no revision suffix; releases should look like {upstream}-0");
     }
 
     let crates_path = Path::new(crates_dir);
