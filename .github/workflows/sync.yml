@@ -208,7 +208,7 @@ jobs:
 
       - name: Cargo check (web)
         run: |
-          cd crates/gpui_web
+          cd crates/gpui-web-gpui-unofficial
           cargo +nightly -Zbuild-std=std,panic_abort check --target wasm32-unknown-unknown
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS: -C target-feature=+atomics,+bulk-memory,+mutable-globals
