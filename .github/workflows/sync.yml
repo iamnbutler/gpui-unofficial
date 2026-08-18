@@ -175,6 +175,40 @@ jobs:
           cd crates/gpui-unofficial
           cargo check
 
+  check-web:
+    needs: check-release
+    if: needs.check-release.outputs.new_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Clone zed
+        run: |
+          git clone --depth=1 --branch ${{ needs.check-release.outputs.zed_tag }} \
+            https://github.com/zed-industries/zed.git /tmp/zed
+
+      - name: Build xtask
+        run: cargo build -p xtask --release
+
+      - name: Transform crates (local deps)
+        run: |
+          cargo run -p xtask --release -- transform \
+            --zed-tag ${{ needs.check-release.outputs.zed_tag }} \
+            --zed-path /tmp/zed \
+            --local
+
+      - name: Cargo check (web)
+        run: cargo check --target wasm32-unknown-unknown -p gpui-web-unofficial
+
   build-examples-linux:
     needs: [check-release, check-linux, check-macos, check-windows]
     runs-on: ubuntu-latest
