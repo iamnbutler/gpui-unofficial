@@ -1,8 +1,10 @@
 use anyhow::{bail, Context, Result};
+use regex::Regex;
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 use toml_edit::{DocumentMut, Item, Value};
 use walkdir::WalkDir;
 
@@ -168,6 +170,11 @@ fn transform_crate(
     if crate_name == "gpui" {
         patch_text_example(&dest_dir)?;
     }
+
+    // Copy in any assets the sources reach for outside their own crate.
+    // Must run after patch_text_example, which matches on the original
+    // include_bytes! text.
+    vendor_external_assets(zed_dir, &src_dir, &dest_dir)?;
 
     // Transform Cargo.toml
     transform_cargo_toml(&dest_dir, output_dir, crate_name, workspace_deps, zed_tag, use_local_deps)?;
@@ -768,6 +775,180 @@ fn patch_text_example(crate_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Matches `include_bytes!("…")` / `include_str!("…")`, including the
+/// multi-line form where the path sits on its own line.
+fn include_macro_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?s)include_(?:bytes|str)!\s*\(\s*"([^"]+)"\s*\)"#).unwrap()
+    })
+}
+
+/// Resolve `.` and `..` without touching the filesystem.
+fn normalize_lexically(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for comp in path.components() {
+        match comp {
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::CurDir => {}
+            c => out.push(c.as_os_str()),
+        }
+    }
+    out
+}
+
+/// Path to `to_file` expressed relative to `from_dir`, using `/` separators so
+/// the literal stays valid on Windows too.
+fn relative_include_path(from_dir: &Path, to_file: &Path) -> String {
+    let from: Vec<_> = from_dir.components().collect();
+    let to: Vec<_> = to_file.components().collect();
+    let shared = from
+        .iter()
+        .zip(to.iter())
+        .take_while(|(a, b)| a == b)
+        .count();
+
+    let mut parts: Vec<String> = vec!["..".to_string(); from.len() - shared];
+    parts.extend(
+        to[shared..]
+            .iter()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned()),
+    );
+    parts.join("/")
+}
+
+/// Where a vendored asset lands inside the extracted crate. Assets under zed's
+/// repo root keep their layout (`assets/fonts/lilex/…`); anything else is
+/// flattened into `vendored/`.
+fn vendored_dest(zed_dir: &Path, asset: &Path, crate_dir: &Path) -> PathBuf {
+    match asset.strip_prefix(normalize_lexically(zed_dir)) {
+        Ok(relative) => crate_dir.join(relative),
+        Err(_) => crate_dir.join("vendored").join(
+            asset
+                .file_name()
+                .map(Path::new)
+                .unwrap_or_else(|| Path::new("asset")),
+        ),
+    }
+}
+
+/// Copy the license sitting alongside a vendored asset. The bundled fonts are
+/// OFL-licensed, and the license has to travel with them when we redistribute
+/// them inside a published crate.
+fn copy_sibling_licenses(asset: &Path, vendored: &Path) -> Result<()> {
+    let (Some(src_dir), Some(dest_dir)) = (asset.parent(), vendored.parent()) else {
+        return Ok(());
+    };
+
+    for entry in fs::read_dir(src_dir)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_file() {
+            continue;
+        }
+        let name = entry.file_name();
+        let lower = name.to_string_lossy().to_lowercase();
+        if !(lower.starts_with("license") || lower.starts_with("copying") || lower.starts_with("ofl"))
+        {
+            continue;
+        }
+        fs::create_dir_all(dest_dir)?;
+        fs::copy(entry.path(), dest_dir.join(&name))?;
+    }
+
+    Ok(())
+}
+
+/// Copy assets that a crate's sources embed from outside their own directory,
+/// and rewrite the include paths to point at the copies.
+///
+/// zed is a monorepo, so crates reach up to the repo-root `assets/` freely.
+/// `gpui_web` embeds eight bundled fonts that way — a browser has no system
+/// font source, so they are load-bearing library code, not test fixtures. Once
+/// the crate is lifted out of the monorepo those paths dangle and it fails to
+/// compile at all:
+///
+/// ```text
+/// error: couldn't read `src/../../../assets/fonts/lilex/Lilex-Regular.ttf`
+/// ```
+///
+/// gpui's and gpui_wgpu's test modules and benches reach out the same way; a
+/// published crate can't read outside its own directory either, so vendoring
+/// fixes those for downstream consumers too.
+fn vendor_external_assets(zed_dir: &Path, src_dir: &Path, crate_dir: &Path) -> Result<()> {
+    let crate_root = normalize_lexically(src_dir);
+    let mut vendored_count = 0usize;
+
+    for entry in WalkDir::new(crate_dir) {
+        let entry = entry?;
+        if !entry.file_type().is_file() || entry.path().extension().is_none_or(|e| e != "rs") {
+            continue;
+        }
+
+        let content = fs::read_to_string(entry.path())?;
+        if !content.contains("include_bytes!") && !content.contains("include_str!") {
+            continue;
+        }
+
+        // Resolve includes against this file's *original* location in zed, so
+        // the `..` hops land inside the monorepo.
+        let relative = entry.path().strip_prefix(crate_dir)?;
+        let Some(original_dir) = src_dir.join(relative).parent().map(Path::to_path_buf) else {
+            continue;
+        };
+        let Some(file_dir) = entry.path().parent() else {
+            continue;
+        };
+
+        let mut rewrites: Vec<(String, String)> = Vec::new();
+        for caps in include_macro_re().captures_iter(&content) {
+            let literal = &caps[1];
+            let asset = normalize_lexically(&original_dir.join(literal));
+
+            // Already inside the crate — it gets copied with everything else.
+            if asset.starts_with(&crate_root) {
+                continue;
+            }
+            // Generated at build time (e.g. concat!(env!("OUT_DIR"), …)) or
+            // simply missing; leave it for the compiler to report.
+            if !asset.is_file() {
+                continue;
+            }
+
+            let dest = vendored_dest(zed_dir, &asset, crate_dir);
+            if let Some(parent) = dest.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::copy(&asset, &dest)
+                .with_context(|| format!("Failed to vendor asset {}", asset.display()))?;
+            copy_sibling_licenses(&asset, &dest)?;
+            vendored_count += 1;
+
+            rewrites.push((
+                literal.to_string(),
+                relative_include_path(file_dir, &dest),
+            ));
+        }
+
+        if rewrites.is_empty() {
+            continue;
+        }
+
+        let mut patched = content;
+        for (old, new) in rewrites {
+            patched = patched.replace(&format!("\"{old}\""), &format!("\"{new}\""));
+        }
+        fs::write(entry.path(), patched)?;
+    }
+
+    if vendored_count > 0 {
+        println!("  Vendored {vendored_count} external asset(s)");
+    }
+
+    Ok(())
+}
+
 /// Add proptest as a dependency for crates that need it for tests.
 /// This is needed because proptest is used by gpui and sum_tree tests but
 /// may not be properly resolved from workspace dependencies.
@@ -993,6 +1174,118 @@ github-download = ["dep:async-fs", "dep:async-tar", "dep:sha2"]
                 "{entry} should not match async-tar"
             );
         }
+    }
+
+    /// The exact shape that broke the v1.15.1 sync: `gpui_web/src/platform.rs`
+    /// embeds fonts from zed's repo-root `assets/`, three levels above the
+    /// crate. They must land inside the crate and the literal must be rewritten
+    /// to reach them, or the crate doesn't compile once it leaves the monorepo.
+    #[test]
+    fn vendors_assets_referenced_from_outside_the_crate() {
+        let zed = tempfile::tempdir().unwrap();
+        let zed_dir = zed.path();
+
+        let font_dir = zed_dir.join("assets/fonts/lilex");
+        fs::create_dir_all(&font_dir).unwrap();
+        fs::write(font_dir.join("Lilex-Regular.ttf"), b"ttf-bytes").unwrap();
+        fs::write(font_dir.join("OFL.txt"), b"font license").unwrap();
+
+        let src_dir = zed_dir.join("crates/gpui_web");
+        fs::create_dir_all(src_dir.join("src")).unwrap();
+        let source = r#"static BUNDLED_FONTS: &[&[u8]] = &[
+    include_bytes!("../../../assets/fonts/lilex/Lilex-Regular.ttf"),
+];
+"#;
+        fs::write(src_dir.join("src/platform.rs"), source).unwrap();
+
+        let out = tempfile::tempdir().unwrap();
+        let crate_dir = out.path().join("gpui-web-gpui-unofficial");
+        copy_dir_recursive(&src_dir, &crate_dir).unwrap();
+
+        vendor_external_assets(zed_dir, &src_dir, &crate_dir).unwrap();
+
+        // The font — and its license — travel with the crate.
+        let vendored = crate_dir.join("assets/fonts/lilex/Lilex-Regular.ttf");
+        assert_eq!(fs::read(&vendored).unwrap(), b"ttf-bytes");
+        assert!(
+            crate_dir.join("assets/fonts/lilex/OFL.txt").is_file(),
+            "the OFL license must ship alongside the redistributed font"
+        );
+
+        // The include now points at the vendored copy, relative to src/.
+        let patched = fs::read_to_string(crate_dir.join("src/platform.rs")).unwrap();
+        assert!(
+            patched.contains(r#"include_bytes!("../assets/fonts/lilex/Lilex-Regular.ttf")"#),
+            "include path should be rewritten, got:\n{patched}"
+        );
+        assert!(!patched.contains("../../../assets"));
+    }
+
+    /// An include that already resolves inside the crate is copied along with
+    /// the rest of the tree, so it must be left exactly as it is.
+    #[test]
+    fn leaves_includes_that_stay_inside_the_crate_alone() {
+        let zed = tempfile::tempdir().unwrap();
+        let src_dir = zed.path().join("crates/gpui");
+        fs::create_dir_all(src_dir.join("src")).unwrap();
+        fs::create_dir_all(src_dir.join("examples/image")).unwrap();
+        fs::write(src_dir.join("examples/image/photo.jpg"), b"jpg").unwrap();
+        let source = r#"const P: &[u8] = include_bytes!("../examples/image/photo.jpg");"#;
+        fs::write(src_dir.join("src/platform.rs"), source).unwrap();
+
+        let out = tempfile::tempdir().unwrap();
+        let crate_dir = out.path().join("gpui-unofficial");
+        copy_dir_recursive(&src_dir, &crate_dir).unwrap();
+
+        vendor_external_assets(zed.path(), &src_dir, &crate_dir).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(crate_dir.join("src/platform.rs")).unwrap(),
+            source
+        );
+        assert!(!crate_dir.join("vendored").exists());
+    }
+
+    /// `include_bytes!(concat!(env!("OUT_DIR"), …))` and other non-literal or
+    /// missing paths must not abort the transform — gpui_macos builds its
+    /// metallib that way.
+    #[test]
+    fn ignores_includes_it_cannot_resolve() {
+        let zed = tempfile::tempdir().unwrap();
+        let src_dir = zed.path().join("crates/gpui_macos");
+        fs::create_dir_all(src_dir.join("src")).unwrap();
+        let source = r#"const S: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/shaders.metallib"));
+const M: &[u8] = include_bytes!("../../../assets/does-not-exist.bin");
+"#;
+        fs::write(src_dir.join("src/renderer.rs"), source).unwrap();
+
+        let out = tempfile::tempdir().unwrap();
+        let crate_dir = out.path().join("gpui-macos-gpui-unofficial");
+        copy_dir_recursive(&src_dir, &crate_dir).unwrap();
+
+        vendor_external_assets(zed.path(), &src_dir, &crate_dir).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(crate_dir.join("src/renderer.rs")).unwrap(),
+            source
+        );
+    }
+
+    #[test]
+    fn builds_relative_include_paths_with_forward_slashes() {
+        let root = Path::new("/out/gpui-web-gpui-unofficial");
+        assert_eq!(
+            relative_include_path(
+                &root.join("src"),
+                &root.join("assets/fonts/lilex/Lilex-Regular.ttf")
+            ),
+            "../assets/fonts/lilex/Lilex-Regular.ttf"
+        );
+        // Deeper source directories need more hops back up.
+        assert_eq!(
+            relative_include_path(&root.join("src/platform/web"), &root.join("assets/f.ttf")),
+            "../../../assets/f.ttf"
+        );
     }
 
     /// After `transform_dependencies` strips the git-only optional `proptest`
