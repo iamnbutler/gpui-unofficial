@@ -228,6 +228,11 @@ fn transform_cargo_toml(
     let unofficial = unofficial_name(original_name);
     let version = zed_tag_to_version(zed_tag);
 
+    // Note where upstream declared proptest as a dev-dependency before the
+    // dependency pass strips it (it is a git-only pin). `add_proptest_dependency`
+    // puts it back in the same table further down.
+    let proptest_dev_dep_table = find_proptest_dev_dep_table(&doc);
+
     // Update [package] section
     if let Some(package) = doc.get_mut("package") {
         if let Some(table) = package.as_table_like_mut() {
@@ -341,7 +346,7 @@ fn transform_cargo_toml(
 
     // Add proptest dependency to crates that need it for tests
     if original_name == "gpui" || original_name == "sum_tree" {
-        add_proptest_dependency(&mut doc);
+        add_proptest_dependency(&mut doc, proptest_dev_dep_table.as_deref());
     }
 
     // Remove workspace lints (not supported for standalone crates)
@@ -949,10 +954,69 @@ fn vendor_external_assets(zed_dir: &Path, src_dir: &Path, crate_dir: &Path) -> R
     Ok(())
 }
 
+/// Find the `target.'<cfg>'` key under which proptest is declared as a
+/// dev-dependency, if it is declared under one at all.
+///
+/// Returns `None` when proptest sits in the plain `[dev-dependencies]` table
+/// (or is absent). zed gates gpui's proptest dev-dependency behind
+/// `cfg(not(target_family = "wasm"))` because proptest pulls in `rusty-fork`
+/// and `wait-timeout`, which are process-based and do not build for wasm.
+fn find_proptest_dev_dep_table(doc: &DocumentMut) -> Option<String> {
+    let targets = doc.get("target")?.as_table_like()?;
+    targets.iter().find_map(|(cfg, item)| {
+        let declares_proptest = item
+            .as_table_like()?
+            .get("dev-dependencies")?
+            .as_table_like()?
+            .contains_key("proptest");
+        declares_proptest.then(|| cfg.to_string())
+    })
+}
+
+/// Get (creating if needed) the dev-dependencies table proptest belongs in.
+///
+/// `target_cfg` is the `cfg(...)` predicate proptest was gated behind upstream,
+/// or `None` for the plain `[dev-dependencies]` table.
+fn dev_dep_table<'a>(
+    doc: &'a mut DocumentMut,
+    target_cfg: Option<&str>,
+) -> Option<&'a mut dyn toml_edit::TableLike> {
+    let Some(cfg) = target_cfg else {
+        return doc
+            .entry("dev-dependencies")
+            .or_insert_with(|| Item::Table(toml_edit::Table::new()))
+            .as_table_like_mut();
+    };
+
+    let targets = doc
+        .entry("target")
+        .or_insert_with(|| {
+            let mut table = toml_edit::Table::new();
+            table.set_implicit(true);
+            Item::Table(table)
+        })
+        .as_table_like_mut()?;
+    let target = targets
+        .entry(cfg)
+        .or_insert_with(|| {
+            let mut table = toml_edit::Table::new();
+            table.set_implicit(true);
+            Item::Table(table)
+        })
+        .as_table_like_mut()?;
+    target
+        .entry("dev-dependencies")
+        .or_insert_with(|| Item::Table(toml_edit::Table::new()))
+        .as_table_like_mut()
+}
+
 /// Add proptest as a dependency for crates that need it for tests.
 /// This is needed because proptest is used by gpui and sum_tree tests but
 /// may not be properly resolved from workspace dependencies.
-fn add_proptest_dependency(doc: &mut DocumentMut) {
+///
+/// `dev_dep_target_cfg` is the target gate upstream declared the dev-dependency
+/// under, as returned by [`find_proptest_dev_dep_table`].
+fn add_proptest_dependency(doc: &mut DocumentMut, dev_dep_target_cfg: Option<&str>) {
     // Add to [dependencies] as optional
     if let Some(deps) = doc.get_mut("dependencies") {
         if let Some(table) = deps.as_table_like_mut() {
@@ -968,28 +1032,19 @@ fn add_proptest_dependency(doc: &mut DocumentMut) {
         }
     }
 
-    // Add to [dev-dependencies]
-    if let Some(deps) = doc.get_mut("dev-dependencies") {
-        if let Some(table) = deps.as_table_like_mut() {
-            if !table.contains_key("proptest") {
-                let mut dep = toml_edit::InlineTable::new();
-                dep.insert("version", "1".into());
-                let mut features = toml_edit::Array::new();
-                features.push("attr-macro");
-                dep.insert("features", features.into());
-                table.insert("proptest", Item::Value(Value::InlineTable(dep)));
-            }
+    // Add to dev-dependencies, in whichever table upstream declared it in.
+    // Restoring the original table matters: dropping gpui's proptest into the
+    // untargeted [dev-dependencies] makes it apply to wasm as well, and
+    // building gpui's examples for wasm32 then fails compiling `wait-timeout`.
+    if let Some(table) = dev_dep_table(doc, dev_dep_target_cfg) {
+        if !table.contains_key("proptest") {
+            let mut dep = toml_edit::InlineTable::new();
+            dep.insert("version", "1".into());
+            let mut features = toml_edit::Array::new();
+            features.push("attr-macro");
+            dep.insert("features", features.into());
+            table.insert("proptest", Item::Value(Value::InlineTable(dep)));
         }
-    } else {
-        // Create dev-dependencies section if it doesn't exist
-        let mut dev_deps = toml_edit::Table::new();
-        let mut dep = toml_edit::InlineTable::new();
-        dep.insert("version", "1".into());
-        let mut features = toml_edit::Array::new();
-        features.push("attr-macro");
-        dep.insert("features", features.into());
-        dev_deps.insert("proptest", Item::Value(Value::InlineTable(dep)));
-        doc.insert("dev-dependencies", Item::Table(dev_deps));
     }
 
     // Declare an explicit `proptest` feature and enable it from `test-support`.
@@ -1288,6 +1343,118 @@ const M: &[u8] = include_bytes!("../../../assets/does-not-exist.bin");
         );
     }
 
+    /// proptest pulls in `rusty-fork` -> `wait-timeout`, which does not build
+    /// for wasm32, so zed confines gpui's proptest dev-dependency to
+    /// `cfg(not(target_family = "wasm"))`. Re-adding it to the untargeted
+    /// `[dev-dependencies]` breaks `cargo build --examples` for wasm32.
+    #[test]
+    fn keeps_proptest_dev_dep_in_the_target_table_upstream_used() {
+        // Mirrors gpui's Cargo.toml: proptest gated behind non-wasm, alongside
+        // the other deps that share the gate.
+        let gpui = r#"
+[dependencies]
+collections = { version = "1" }
+
+[dev-dependencies]
+rand = { version = "0.9" }
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+http_client = { version = "1" }
+proptest = { version = "1" }
+
+[features]
+test-support = ["collections/test-support"]
+"#;
+        let mut doc: DocumentMut = gpui.parse().unwrap();
+        let cfg = find_proptest_dev_dep_table(&doc).expect("proptest is gated upstream");
+        assert_eq!(cfg, r#"cfg(not(target_family = "wasm"))"#);
+
+        // Simulate the dependency pass dropping the git-only proptest pin.
+        doc["target"][&cfg]["dev-dependencies"]
+            .as_table_like_mut()
+            .unwrap()
+            .remove("proptest");
+
+        add_proptest_dependency(&mut doc, Some(&cfg));
+
+        assert!(
+            doc["target"][&cfg]["dev-dependencies"]
+                .as_table_like()
+                .unwrap()
+                .contains_key("proptest"),
+            "proptest should be restored to the non-wasm dev-dependency table"
+        );
+        assert!(
+            !doc["dev-dependencies"]
+                .as_table_like()
+                .unwrap()
+                .contains_key("proptest"),
+            "proptest must not leak into the untargeted dev-dependencies, or it \
+             applies to wasm too"
+        );
+        // The manifest still parses, and the gate is written the way Cargo
+        // expects rather than as a mangled key.
+        assert!(
+            doc.to_string()
+                .contains(r#"[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]"#),
+            "target table header should round-trip: {doc}"
+        );
+    }
+
+    /// The gate key contains double quotes, so creating the target table from
+    /// scratch has to emit a header Cargo can still parse.
+    #[test]
+    fn creates_a_reparseable_target_table_when_one_is_missing() {
+        let mut doc: DocumentMut = "[dependencies]\ncollections = { version = \"1\" }\n"
+            .parse()
+            .unwrap();
+        let cfg = r#"cfg(not(target_family = "wasm"))"#;
+
+        add_proptest_dependency(&mut doc, Some(cfg));
+
+        let rendered = doc.to_string();
+        let reparsed: DocumentMut = rendered
+            .parse()
+            .unwrap_or_else(|e| panic!("generated manifest must parse: {e}\n{rendered}"));
+        assert!(
+            reparsed["target"][cfg]["dev-dependencies"]
+                .as_table_like()
+                .unwrap()
+                .contains_key("proptest")
+        );
+    }
+
+    /// sum_tree declares proptest in the plain `[dev-dependencies]` table, with
+    /// no target gate. It should stay there.
+    #[test]
+    fn leaves_untargeted_proptest_dev_deps_untargeted() {
+        let mut doc: DocumentMut = r#"
+[dependencies]
+heapless = { version = "0.9" }
+
+[dev-dependencies]
+rand = { version = "0.9" }
+proptest = { version = "1" }
+
+[features]
+test-support = ["proptest"]
+"#
+        .parse()
+        .unwrap();
+        assert_eq!(find_proptest_dev_dep_table(&doc), None);
+
+        doc["dev-dependencies"].as_table_like_mut().unwrap().remove("proptest");
+        add_proptest_dependency(&mut doc, None);
+
+        assert!(
+            doc["dev-dependencies"]
+                .as_table_like()
+                .unwrap()
+                .contains_key("proptest")
+        );
+        assert!(doc.get("target").is_none(), "no target table should be invented");
+    }
+
     /// After `transform_dependencies` strips the git-only optional `proptest`
     /// dep and `remove_dep_from_features` removes the bare `proptest` from
     /// `test-support`, `add_proptest_dependency` must re-add proptest in a way
@@ -1308,7 +1475,7 @@ test-support = ["collections/test-support", "rand"]
         .parse()
         .unwrap();
 
-        add_proptest_dependency(&mut doc);
+        add_proptest_dependency(&mut doc, None);
 
         // Optional proptest dependency restored with the attr-macro feature.
         let dep = doc["dependencies"]["proptest"].as_inline_table().unwrap();
