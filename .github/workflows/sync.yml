@@ -322,13 +322,36 @@ jobs:
             --zed-path /tmp/zed \
             --local
 
-      - name: Build examples (web)
+      - name: Build web examples
         run: |
           cd crates/gpui-unofficial
-          cargo -Zbuild-std=std,panic_abort build --target wasm32-unknown-unknown --examples
+          # Discover examples and build them
+          EXAMPLES=$(ls examples/*.rs | sed 's/\.rs$//' | sed 's/^examples\///')
+          cargo -Zbuild-std=std,panic_abort build \
+          --target wasm32-unknown-unknown \
+          -p gpui-unofficial \
+          --keep-going \
+          $(for e in $EXAMPLES; do echo "--example $e"; done)
         env:
           RUSTFLAGS: "-C target-feature=+atomics,+bulk-memory,+mutable-globals"
           RUSTC_BOOTSTRAP: '1'
+
+      - name: Install wasm-bindgen-cli
+        run: cargo install wasm-bindgen-cli
+
+      - name: Run wasm-bindgen on examples
+        run: |
+          cd crates/gpui-unofficial
+          mkdir -p target/web-examples
+          for example in $(ls examples/*.rs | sed 's/\.rs$//' | sed 's/^examples\///'); do
+            wasm_path="target/wasm32-unknown-unknown/debug/examples/$example.wasm"
+            if [ -f "$wasm_path" ]; then
+              wasm-bindgen "$wasm_path" \
+                --target web \
+                --out-dir "target/web-examples/$example" \
+                --out-name "$example"
+            fi
+          done
 
   build-examples-windows:
     needs: [check-release, check-linux, check-macos, check-windows]
