@@ -1,7 +1,9 @@
 use anyhow::Result;
 use std::process::Command;
 
-use crate::transform::{crate_name_from_path, unofficial_name, CRATE_PUBLISH_ORDER};
+use crate::transform::{
+    crate_exists_at_tag, crate_name_from_path, unofficial_name, CRATE_PUBLISH_ORDER,
+};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -152,6 +154,10 @@ pub fn build_report(
 
     let crates_published = CRATE_PUBLISH_ORDER
         .iter()
+        // A release can only contain the crates zed shipped at that tag. Asking
+        // crates.io for the rest would mark the release permanently incomplete
+        // and make the sync workflow re-run it every six hours forever.
+        .filter(|crate_entry| crate_exists_at_tag(crate_name_from_path(crate_entry), version))
         .map(|crate_entry| {
             let crate_name = crate_name_from_path(crate_entry);
             let pkg_name = unofficial_name(crate_name);
