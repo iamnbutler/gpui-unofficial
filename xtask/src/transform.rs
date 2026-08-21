@@ -35,6 +35,7 @@ pub const CRATE_PUBLISH_ORDER: &[&str] = &[
     "gpui",
     // Tier 4 - Platform backends
     "gpui_wgpu",
+    "gpui_apple",
     "gpui_macos",
     "gpui_linux",
     "gpui_windows",
