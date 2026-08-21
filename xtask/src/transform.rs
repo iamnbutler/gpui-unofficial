@@ -44,6 +44,47 @@ pub const CRATE_PUBLISH_ORDER: &[&str] = &[
     "gpui_platform",
 ];
 
+/// Crates zed only introduced partway through the release line we track.
+///
+/// `CRATE_PUBLISH_ORDER` is one flat list, but zed's crate roster moves between
+/// releases: 1.17 split the Metal renderer out of `gpui_macos` into a new
+/// `gpui_apple` crate, which does not exist at v1.16.1 or earlier. Listing such
+/// a crate without recording when it appeared breaks every sync of an older tag
+/// ("Crate not found"), and leaves `verify` waiting forever for a crate that
+/// release can never contain.
+///
+/// Keyed by zed's directory name, valued by the first zed `(major, minor)` that
+/// ships it. Add an entry here whenever you add a crate to the publish order
+/// that isn't present in the whole supported tag range.
+const CRATE_INTRODUCED_IN: &[(&str, (u32, u32))] = &[
+    // zed 1.17 moved metal_renderer.rs out of gpui_macos into gpui_apple.
+    ("gpui_apple", (1, 17)),
+];
+
+/// Pull `(major, minor)` out of a zed tag such as `v1.16.1` or `v1.17.0-pre`.
+fn tag_major_minor(tag: &str) -> Option<(u32, u32)> {
+    let numeric = tag.trim_start_matches('v').split(['-', '+']).next()?;
+    let mut parts = numeric.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    Some((major, minor))
+}
+
+/// Does zed ship `crate_name` at `zed_tag`?
+///
+/// Only crates listed in [`CRATE_INTRODUCED_IN`] can answer `false`. Everything
+/// else is assumed present at every tag, so an *unexpected* absence still fails
+/// the transform loudly instead of quietly shrinking the set we publish.
+pub fn crate_exists_at_tag(crate_name: &str, zed_tag: &str) -> bool {
+    let Some(&(_, introduced)) = CRATE_INTRODUCED_IN.iter().find(|(name, _)| *name == crate_name)
+    else {
+        return true;
+    };
+    // An unparseable tag tells us nothing, so assume the crate is there and let
+    // the caller report a real problem rather than skipping on a guess.
+    tag_major_minor(zed_tag).is_none_or(|tag| tag >= introduced)
+}
+
 /// Map from original crate name to unofficial name
 pub fn unofficial_name(name: &str) -> String {
     if name == "gpui" {
@@ -81,14 +122,20 @@ pub fn run(zed_tag: &str, zed_path: Option<&str>, output_dir: &str, use_local_de
     }
     fs::create_dir_all(&output_path)?;
 
-    // Transform each crate
-    for crate_name in CRATE_PUBLISH_ORDER {
-        println!("Transforming: {crate_name}");
-        transform_crate(&zed_dir, &output_path, crate_name, &workspace_deps, zed_tag, use_local_deps)?;
+    // Transform each crate that this zed release actually has
+    let mut transformed: Vec<&str> = Vec::new();
+    for crate_path in CRATE_PUBLISH_ORDER {
+        if !crate_exists_at_tag(crate_name_from_path(crate_path), zed_tag) {
+            println!("Skipping: {crate_path} (not in zed {zed_tag})");
+            continue;
+        }
+        println!("Transforming: {crate_path}");
+        transform_crate(&zed_dir, &output_path, crate_path, &workspace_deps, zed_tag, use_local_deps)?;
+        transformed.push(crate_path);
     }
 
     // Write metadata file
-    write_metadata(&output_path, zed_tag, &zed_dir)?;
+    write_metadata(&output_path, zed_tag, &zed_dir, &transformed)?;
 
     println!("\nTransform complete! Crates written to: {output_dir}");
     println!("Run 'cargo build --workspace' to verify.");
@@ -1163,7 +1210,12 @@ fn zed_tag_to_version(tag: &str) -> String {
     tag.strip_prefix('v').unwrap_or(tag).to_string()
 }
 
-fn write_metadata(output_dir: &Path, zed_tag: &str, zed_dir: &Path) -> Result<()> {
+fn write_metadata(
+    output_dir: &Path,
+    zed_tag: &str,
+    zed_dir: &Path,
+    crates: &[&str],
+) -> Result<()> {
     // Get commit SHA
     let output = Command::new("git")
         .args(["rev-parse", "HEAD"])
@@ -1175,7 +1227,9 @@ fn write_metadata(output_dir: &Path, zed_tag: &str, zed_dir: &Path) -> Result<()
         "zed_tag": zed_tag,
         "zed_commit": sha,
         "transformed_at": chrono::Utc::now().to_rfc3339(),
-        "crates": CRATE_PUBLISH_ORDER,
+        // The crates this tag actually produced, not the full publish order —
+        // older tags legitimately lack some of it (see CRATE_INTRODUCED_IN).
+        "crates": crates,
     });
 
     let path = output_dir.join("transform-metadata.json");
@@ -1187,6 +1241,56 @@ fn write_metadata(output_dir: &Path, zed_tag: &str, zed_dir: &Path) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The v1.16.1 sync failure: `gpui_apple` was added to the publish order
+    /// for zed 1.17, but the scheduled run targets zed's latest *stable*
+    /// release, which was still v1.16.1 — a tag with no `crates/gpui_apple`.
+    /// The transform bailed with "Crate not found" on all four platforms.
+    #[test]
+    fn crates_are_only_expected_from_the_release_that_introduced_them() {
+        for tag in ["v1.17.0-pre", "v1.17.0", "v1.18.2", "v2.0.0"] {
+            assert!(
+                crate_exists_at_tag("gpui_apple", tag),
+                "gpui_apple exists from zed 1.17 on, including {tag}"
+            );
+        }
+        for tag in ["v1.16.1", "v1.16.0-pre", "v1.15.0", "v0.185.0"] {
+            assert!(
+                !crate_exists_at_tag("gpui_apple", tag),
+                "gpui_apple does not exist at {tag}"
+            );
+        }
+    }
+
+    /// Only crates listed in `CRATE_INTRODUCED_IN` may be skipped. Everything
+    /// else must still fail loudly when it goes missing, so an upstream rename
+    /// can't silently shrink the set of crates we publish.
+    #[test]
+    fn unlisted_crates_are_expected_at_every_tag() {
+        for entry in CRATE_PUBLISH_ORDER {
+            let name = crate_name_from_path(entry);
+            if CRATE_INTRODUCED_IN.iter().any(|(n, _)| *n == name) {
+                continue;
+            }
+            assert!(
+                crate_exists_at_tag(name, "v1.0.0"),
+                "{name} is not version-gated, so it must be expected everywhere"
+            );
+        }
+        // An unparseable tag must not be read as "missing" either.
+        assert!(crate_exists_at_tag("gpui_apple", "nightly"));
+    }
+
+    #[test]
+    fn parses_major_minor_from_stable_and_preview_tags() {
+        assert_eq!(tag_major_minor("v1.16.1"), Some((1, 16)));
+        assert_eq!(tag_major_minor("1.16.1"), Some((1, 16)));
+        assert_eq!(tag_major_minor("v1.17.0-pre"), Some((1, 17)));
+        assert_eq!(tag_major_minor("v0.185.0"), Some((0, 185)));
+        assert_eq!(tag_major_minor("main"), None);
+        // Ordering has to be numeric, not lexicographic: "1.9" < "1.17".
+        assert!(tag_major_minor("v1.9.0") < tag_major_minor("v1.17.0"));
+    }
 
     /// zed's `http_client` declares `async-tar` as an optional *git-only*
     /// workspace dep, so the transform drops it — but `github-download` still
