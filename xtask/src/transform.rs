@@ -1089,8 +1089,9 @@ fn add_custom_cfg_lints(doc: &mut DocumentMut, crate_name: &str) {
         "ztracing" => &["cfg(ztracing)", "cfg(ztracing_with_memory)"],
         "util_macros" => &["cfg(perf_enabled)"],
         "gpui" => &["cfg(rust_analyzer)"],
-        // objc crate macros use cargo-clippy cfg
-        "gpui_macos" => &["cfg(feature, values(\"cargo-clippy\"))"],
+        // objc crate macros use cargo-clippy cfg. `gpui_apple` holds the Metal
+        // renderer that `gpui_macos` used to own, and it calls `msg_send!` too.
+        "gpui_apple" | "gpui_macos" => &["cfg(feature, values(\"cargo-clippy\"))"],
         // nightly_coverage feature for code coverage
         "gpui_linux" => &["cfg(feature, values(\"nightly_coverage\"))"],
         _ => return, // No custom cfgs needed
@@ -1517,6 +1518,35 @@ test-support = ["collections/test-support", "rand"]
             !ts.contains(&"dep:proptest".to_string()),
             "test-support must not reference dep:proptest directly"
         );
+    }
+
+    /// `objc`'s `sel_impl!` -- reached through every `msg_send!` -- expands to
+    /// `#[cfg_attr(feature = "cargo-clippy", …)]`. zed silences that repo-wide
+    /// with `unexpected_cfgs = { level = "allow" }` in `[workspace.lints]`,
+    /// which the transform strips, so each extracted crate that calls
+    /// `msg_send!` needs the cfg declared here instead. The sync workflow sets
+    /// `RUSTFLAGS: -Dwarnings`, so a missing entry is a build failure.
+    ///
+    /// zed 1.17 moved the Metal renderer out of `gpui_macos` into the new
+    /// `gpui_apple` crate, taking the `msg_send!` calls with it.
+    #[test]
+    fn allows_cargo_clippy_cfg_for_every_objc_crate() {
+        for crate_name in ["gpui_apple", "gpui_macos"] {
+            let mut doc = DocumentMut::new();
+            add_custom_cfg_lints(&mut doc, crate_name);
+
+            let check_cfg: Vec<String> = doc["lints"]["rust"]["unexpected_cfgs"]["check-cfg"]
+                .as_array()
+                .unwrap_or_else(|| panic!("{crate_name} declares no check-cfg list"))
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect();
+
+            assert!(
+                check_cfg.contains(&r#"cfg(feature, values("cargo-clippy"))"#.to_string()),
+                "{crate_name} calls msg_send! and must allow the cargo-clippy cfg, got {check_cfg:?}"
+            );
+        }
     }
 }
 
