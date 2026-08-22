@@ -1172,36 +1172,73 @@ fn known_git_dep_version(package: &str) -> Option<String> {
     }
 }
 
-/// Look up the latest version of a package on crates.io via `cargo search`.
+/// Look up the latest version of a package on crates.io via the crates.io API.
 /// Returns the version string (e.g. "29.0.1") or None if not found.
 pub(crate) fn lookup_crates_io_version(package: &str) -> Option<String> {
-    // Retry up to 3 times with backoff to handle crates.io rate limits
-    for attempt in 0..3u64 {
+    let url = format!("https://crates.io/api/v1/crates/{package}");
+    
+    // Retry up to 3 times with backoff to handle transient failures
+    for attempt in 0..3 {
         if attempt > 0 {
-            std::thread::sleep(std::time::Duration::from_secs(5 * attempt));
+            std::thread::sleep(std::time::Duration::from_secs(5 * attempt as u64));
         }
-        let output = match Command::new("cargo")
-            .args(["search", package, "--limit", "1"])
-            .output()
+        
+        match reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .user_agent("gpui-unofficial-transform/0.1")
+            .build()
+            .and_then(|client| client.get(&url).send())
         {
-            Ok(o) => o,
-            Err(_) => continue,
-        };
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if stdout.is_empty() && !output.status.success() {
-            // Likely rate limited, retry
-            continue;
-        }
-        let prefix = format!("{package} = \"");
-        for line in stdout.lines() {
-            if line.starts_with(&prefix) {
-                let after = &line[prefix.len()..];
-                let version = after.split('"').next()?;
-                return Some(version.to_string());
+            Ok(response) => {
+                if response.status().is_success() {
+                    // Parse the JSON response to get the latest version
+                    match response.json::<serde_json::Value>() {
+                        Ok(json) => {
+                            if let Some(versions) = json.get("versions").and_then(|v| v.as_array()) {
+                                // The API returns versions sorted with latest first
+                                for version_info in versions {
+                                    if let Some(version) = version_info.get("num").and_then(|v| v.as_str()) {
+                                        // Check if it's a stable release (no pre-release)
+                                        // If all are pre-release, return the first one
+                                        let num = version.to_string();
+                                        if !num.contains("-") {
+                                            return Some(num);
+                                        }
+                                    }
+                                }
+                                // If only pre-releases, return the first one
+                                if let Some(version_info) = versions.first() {
+                                    if let Some(version) = version_info.get("num").and_then(|v| v.as_str()) {
+                                        return Some(version.to_string());
+                                    }
+                                }
+                            }
+                            return None;
+                        }
+                        Err(_) => {
+                            if attempt == 2 {
+                                return None;
+                            }
+                            continue;
+                        }
+                    }
+                }
+                if response.status() == reqwest::StatusCode::NOT_FOUND {
+                    return None;
+                }
+                if attempt == 2 {
+                    return None;
+                }
+                continue;
+            }
+            Err(e) => {
+                if attempt == 2 {
+                    eprintln!("Failed to lookup crate {}: {}", package, e);
+                    return None;
+                }
+                continue;
             }
         }
-        // Got a valid response but package not found
-        return None;
     }
     None
 }
