@@ -1180,7 +1180,7 @@ pub(crate) fn lookup_crates_io_version(package: &str) -> Option<String> {
     // Retry up to 3 times with backoff to handle transient failures
     for attempt in 0..3 {
         if attempt > 0 {
-            std::thread::sleep(std::time::Duration::from_secs(5 * attempt as u64));
+            std::thread::sleep(std::time::Duration::from_secs(2 * attempt as u64));
         }
         
         match reqwest::blocking::Client::builder()
@@ -1191,8 +1191,8 @@ pub(crate) fn lookup_crates_io_version(package: &str) -> Option<String> {
         {
             Ok(response) => {
                 if response.status().is_success() {
-                    // Parse the JSON response to get the latest version
-                    match response.json::<serde_json::Value>() {
+                    // Use serde_json::from_reader instead of response.json()
+                    match serde_json::from_reader::<_, serde_json::Value>(response) {
                         Ok(json) => {
                             if let Some(versions) = json.get("versions").and_then(|v| v.as_array()) {
                                 // The API returns versions sorted with latest first
@@ -1201,7 +1201,7 @@ pub(crate) fn lookup_crates_io_version(package: &str) -> Option<String> {
                                         // Check if it's a stable release (no pre-release)
                                         // If all are pre-release, return the first one
                                         let num = version.to_string();
-                                        if !num.contains("-") {
+                                        if !num.contains('-') {
                                             return Some(num);
                                         }
                                     }
@@ -1215,8 +1215,9 @@ pub(crate) fn lookup_crates_io_version(package: &str) -> Option<String> {
                             }
                             return None;
                         }
-                        Err(_) => {
+                        Err(e) => {
                             if attempt == 2 {
+                                eprintln!("Failed to parse JSON for {}: {}", package, e);
                                 return None;
                             }
                             continue;
