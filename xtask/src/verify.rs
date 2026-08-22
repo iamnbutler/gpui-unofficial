@@ -117,16 +117,43 @@ impl ReleaseChecker for LiveChecker {
             .is_some_and(|o| !o.stdout.is_empty())
     }
 
-    fn crate_version_published(&self, name: &str, version: &str) -> bool {
-        Command::new("cargo")
-            .args(["search", name, "--limit", "1"])
-            .output()
-            .ok()
-            .is_some_and(|o| {
-                let stdout = String::from_utf8_lossy(&o.stdout);
-                stdout.contains(name) && stdout.contains(version)
-            })
+fn crate_version_published(&self, name: &str, version: &str) -> bool {
+    let url = format!("https://crates.io/api/v1/crates/{name}/{version}");
+    
+    // Retry up to 3 times with backoff
+    for attempt in 0..3 {
+        if attempt > 0 {
+            std::thread::sleep(std::time::Duration::from_secs(5 * attempt as u64));
+        }
+        
+        match reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .user_agent("gpui-unofficial-verify/0.1")
+            .build()
+            .and_then(|client| client.get(&url).send())
+        {
+            Ok(response) => {
+                if response.status().is_success() {
+                    return true;
+                }
+                if response.status() == reqwest::StatusCode::NOT_FOUND {
+                    return false;
+                }
+                if attempt == 2 {
+                    return false;
+                }
+                continue;
+            }
+            Err(e) => {
+                if attempt == 2 {
+                    eprintln!("Failed to check version existence for {}/{}: {}", name, version, e);
+                    return false;
+                }
+                continue;
+            }
+        }
     }
+    false
 }
 
 // ---------------------------------------------------------------------------
