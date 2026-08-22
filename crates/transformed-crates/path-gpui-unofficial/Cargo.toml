@@ -1,0 +1,23 @@
+[package]
+name = "path-gpui-unofficial"
+version = "1.16.1"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/iamnbutler/gpui-unofficial"
+description = "Unofficial release of Zed's path crate"
+
+[lib]
+path = "src/path.rs"
+
+[features]
+test-support = []
+
+[dependencies]
+anyhow = { version = "1.0.86" }
+dunce = { version = "1.0" }
+serde = { version = "1.0.221", features = ["derive", "rc"], optional = true }
+
+[dev-dependencies]
+tempfile = { version = "3.20.0" }
+
+[workspace]
