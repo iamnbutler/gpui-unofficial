@@ -277,38 +277,88 @@ fn known_fork_version(package: &str) -> Option<String> {
     }
 }
 
+/// Check if a crate exists at all on crates.io (any version)
 fn crate_exists_on_registry(name: &str) -> bool {
-    // Retry up to 3 times with short backoff to handle crates.io rate limits
+    let url = format!("https://crates.io/api/v1/crates/{name}");
+    
     for attempt in 0..3 {
         if attempt > 0 {
             thread::sleep(Duration::from_secs(5 * attempt as u64));
         }
-        match Command::new("cargo")
-            .args(["search", name, "--limit", "1"])
-            .output()
+        
+        match reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .user_agent("gpui-unofficial-publish/0.1")
+            .build()
+            .and_then(|client| client.get(&url).send())
         {
-            Ok(o) if !o.stdout.is_empty() => {
-                return String::from_utf8_lossy(&o.stdout).contains(name);
+            Ok(response) => {
+                if response.status().is_success() {
+                    return true;
+                }
+                if response.status() == reqwest::StatusCode::NOT_FOUND {
+                    return false;
+                }
+                if attempt == 2 {
+                    return false;
+                }
+                continue;
             }
-            Ok(_) => return false, // Empty result = not found
-            Err(_) => continue,
+            Err(e) => {
+                if attempt == 2 {
+                    eprintln!("Failed to check if crate {} exists: {}", name, e);
+                    return false;
+                }
+                continue;
+            }
         }
     }
     false
 }
 
-/// Check if a specific crate version exists on crates.io
+/// Check if a specific crate version exists on crates.io using the crates.io API
 fn crate_version_exists(name: &str, version: &str) -> bool {
-    // Use cargo info which checks the exact version
-    Command::new("cargo")
-        .args(["search", &format!("{name}"), "--limit", "1"])
-        .output()
-        .ok()
-        .is_some_and(|o| {
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            // cargo search returns: name = "version"
-            stdout.contains(name) && stdout.contains(version)
-        })
+    let url = format!("https://crates.io/api/v1/crates/{name}/{version}");
+    
+    for attempt in 0..3 {
+        if attempt > 0 {
+            thread::sleep(Duration::from_secs(2 * attempt as u64));
+        }
+        
+        match reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .user_agent("gpui-unofficial-publish/0.1")
+            .build()
+            .and_then(|client| client.get(&url).send())
+        {
+            Ok(response) => {
+                // If we get a 200 OK, the version exists
+                if response.status().is_success() {
+                    return true;
+                }
+                // If we get a 404, the version doesn't exist
+                if response.status() == reqwest::StatusCode::NOT_FOUND {
+                    return false;
+                }
+                // Other status codes - retry
+                if attempt == 2 {
+                    eprintln!("Unexpected status {} for {}/{}, treating as not found", 
+                        response.status(), name, version);
+                    return false;
+                }
+                continue;
+            }
+            Err(e) => {
+                if attempt == 2 {
+                    eprintln!("Failed to check version existence for {}/{}: {}", name, version, e);
+                    // Fall back to false to avoid unnecessary re-publishes
+                    return false;
+                }
+                continue;
+            }
+        }
+    }
+    false
 }
 
 /// Run only the Cargo.toml patching step (strip git deps) without publishing.
