@@ -13,7 +13,11 @@ if: ${{ github.event.workflow_run.conclusion == 'failure' }}
 
 engine: "claude"
 
-permissions: read-all
+permissions:
+  contents: read
+  actions: read
+  issues: read
+  pull-requests: read
 
 network:
   allowed: [defaults, rust]
