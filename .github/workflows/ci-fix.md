@@ -36,7 +36,7 @@ safe-outputs:
 tools:
   bash: true
   github:
-    toolsets: [default]
+    toolsets: [default, actions]
 ---
 
 # CI Fix Agent
@@ -60,7 +60,9 @@ A workflow just failed (run #${{ github.event.workflow_run.run_number }}, conclu
 
 1. **Check for existing fix PRs first.** Before doing anything else, search for open PRs with the `ci-fix` label or `[CI Fix]` title prefix. If a PR already exists that addresses the same failure (e.g., same missing crate, same build error), **do not create a duplicate**. Instead, use `noop` to report that a fix is already in progress and link to the existing PR.
 
-2. **Fetch the failed run's logs** using `get_job_logs` with `failed_only=true` for run ID `${{ github.event.workflow_run.id }}`.
+2. **Fetch the failed run's logs using GitHub MCP tools:**
+   - First, list the jobs for run ID `${{ github.event.workflow_run.id }}` using `actions_list` or `list_workflow_run_jobs` to identify the failed job ID(s).
+   - Then, fetch the error output for each failed job using `get_job_logs` with that `job_id`.
 
 3. **Diagnose the root cause.** Common failure categories:
    - **Missing crate metadata** — crates.io requires `description`, `license`, `repository` fields. Fix in `transform.rs` where package metadata is set.
@@ -84,6 +86,7 @@ A workflow just failed (run #${{ github.event.workflow_run.run_number }}, conclu
 
 ## Important Rules
 
+- Do not use `curl` or raw HTTP requests to query the GitHub API or fetch logs: the bash environment does not have GitHub API tokens. Always use the built-in GitHub MCP tools.
 - Never modify generated files in `crates/` — always fix the transform tool or workflow config
 - Keep changes minimal and focused on the specific failure
 - The naming convention is `{original-name}-gpui-unofficial` (e.g., `collections-gpui-unofficial`)
