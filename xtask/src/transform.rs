@@ -1157,12 +1157,14 @@ fn add_custom_cfg_lints(doc: &mut DocumentMut, crate_name: &str) {
     let mut rust_lints = toml_edit::InlineTable::new();
     rust_lints.insert("unexpected_cfgs", toml_edit::Value::InlineTable(unexpected_cfgs));
 
-    // gpui_apple's Metal renderer still uses `cocoa::foundation::{NSSize, NSUInteger}`,
-    // which upstream `cocoa` deprecated in favor of `objc2-foundation`. zed hasn't
-    // migrated this file yet, so under our `-Dwarnings` build these deprecation
-    // warnings become hard errors (only reached once something actually compiles
-    // the crate, e.g. `cargo build --examples`, not the lighter `cargo check`).
-    if crate_name == "gpui_apple" {
+    // gpui_apple's Metal renderer, and gpui_macos's window/appearance code,
+    // still use `cocoa::foundation::*` APIs (NSPoint, NSSize, NSRect, NSString,
+    // NSArray, ...) that upstream `cocoa` deprecated in favor of
+    // `objc2-foundation`. zed hasn't migrated these files yet, so under our
+    // `-Dwarnings` build these deprecation warnings become hard errors (only
+    // reached once something actually compiles the crate, e.g.
+    // `cargo build --examples`, not the lighter `cargo check`).
+    if crate_name == "gpui_apple" || crate_name == "gpui_macos" {
         rust_lints.insert("deprecated", "allow".into());
     }
 
@@ -1700,32 +1702,27 @@ test-support = ["collections/test-support", "rand"]
         }
     }
 
-    /// `gpui_apple`'s Metal renderer (`metal_renderer.rs`) still imports
-    /// `cocoa::foundation::{NSSize, NSUInteger}`, which the `cocoa` crate has
-    /// deprecated in favor of `objc2-foundation`. zed hasn't migrated this file
-    /// yet, so under the sync workflow's `RUSTFLAGS: -Dwarnings` these
-    /// deprecation warnings become build errors -- but only once something
-    /// actually compiles the crate (e.g. `cargo build --examples`); the lighter
-    /// `cargo check` on just `gpui-unofficial` doesn't pull `gpui_apple` in, so
-    /// it stays green while example builds fail.
+    /// `gpui_apple`'s Metal renderer (`metal_renderer.rs`) and `gpui_macos`'s
+    /// window/appearance code (`window.rs`, `gpui_macos.rs`, `window_appearance.rs`)
+    /// still import `cocoa::foundation::*` APIs (NSSize, NSRect, NSString, ...),
+    /// which the `cocoa` crate has deprecated in favor of `objc2-foundation`. zed
+    /// hasn't migrated these files yet, so under the sync workflow's
+    /// `RUSTFLAGS: -Dwarnings` these deprecation warnings become build errors --
+    /// but only once something actually compiles the crate (e.g.
+    /// `cargo build --examples`); the lighter `cargo check` on just
+    /// `gpui-unofficial` doesn't pull these crates in, so it stays green while
+    /// example builds fail.
     #[test]
-    fn allows_deprecated_cocoa_apis_in_gpui_apple_only() {
-        let mut doc = DocumentMut::new();
-        add_custom_cfg_lints(&mut doc, "gpui_apple");
-        assert_eq!(
-            doc["lints"]["rust"]["deprecated"].as_str(),
-            Some("allow"),
-            "gpui_apple must allow deprecated lints for its still-unmigrated cocoa usage"
-        );
-
-        // gpui_macos no longer owns the Metal renderer (zed 1.17 moved it to
-        // gpui_apple), so it shouldn't get a blanket deprecated-allow it doesn't need.
-        let mut doc = DocumentMut::new();
-        add_custom_cfg_lints(&mut doc, "gpui_macos");
-        assert!(
-            doc["lints"]["rust"].get("deprecated").is_none(),
-            "gpui_macos should not need the deprecated allow"
-        );
+    fn allows_deprecated_cocoa_apis_in_gpui_apple_and_gpui_macos() {
+        for crate_name in ["gpui_apple", "gpui_macos"] {
+            let mut doc = DocumentMut::new();
+            add_custom_cfg_lints(&mut doc, crate_name);
+            assert_eq!(
+                doc["lints"]["rust"]["deprecated"].as_str(),
+                Some("allow"),
+                "{crate_name} must allow deprecated lints for its still-unmigrated cocoa usage"
+            );
+        }
     }
 }
 
