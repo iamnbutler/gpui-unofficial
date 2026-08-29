@@ -525,15 +525,27 @@ pub fn run(crates_dir: &str, dry_run: bool) -> Result<()> {
             }
 
             // Dependency not yet propagated to the sparse index — wait and retry
+            //
+            // Cargo reports this in different ways depending on the failure mode:
+            // - "no matching package"/"not found in registry" when the dep is entirely absent
+            // - "failed to select a version for the requirement" + "candidate versions found
+            //   which didn't match" when the crate exists but the just-published version isn't
+            //   in the index yet (e.g. an internal dep bumped to a new prerelease version)
             if stderr.contains("not found in registry")
                 || stderr.contains("no matching package")
                 || stderr.contains("not available in any registry")
+                || stderr.contains("failed to select a version for the requirement")
+                || stderr.contains("candidate versions found which didn't match")
             {
                 if attempt < MAX_RETRIES {
                     // Extract the missing package name for diagnostics
                     let missing = stderr
                         .lines()
-                        .find(|l| l.contains("no matching package") || l.contains("not found"))
+                        .find(|l| {
+                            l.contains("no matching package")
+                                || l.contains("not found")
+                                || l.contains("failed to select a version")
+                        })
                         .unwrap_or("(unknown)");
                     println!(
                         "  Dependency not yet propagated: {missing}");
