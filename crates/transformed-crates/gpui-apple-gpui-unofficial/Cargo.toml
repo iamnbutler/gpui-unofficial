@@ -1,0 +1,72 @@
+[package]
+name = "gpui-apple-gpui-unofficial"
+version = "1.18.0-pre"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/iamnbutler/gpui-unofficial"
+description = "Unofficial release of Zed's gpui_apple crate"
+
+[lib]
+path = "src/gpui_apple.rs"
+
+[features]
+default = []
+bench-support = ["gpui/bench-support"]
+test-support = ["gpui/test-support"]
+runtime_shaders = []
+
+[dependencies]
+gpui = { package = "gpui-unofficial", version = "1.18.0-pre" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+anyhow = { version = "1.0.86" }
+block = { version = "0.1" }
+cocoa = { version = "=0.26.0" }
+collections = { package = "collections-gpui-unofficial", version = "1.18.0-pre" }
+core-foundation = { version = "0.10" }
+core-video = { version = "0.5.2", features = ["metal"] }
+derive_more = { version = "2.1.1", features = [
+    "add",
+    "add_assign",
+    "deref",
+    "deref_mut",
+    "display",
+    "from",
+    "from_str",
+    "mul",
+    "mul_assign",
+    "not"] }
+etagere = { version = "0.2" }
+foreign-types = { version = "0.5" }
+image = { version = "0.25.1", default-features = false, features = [
+    "bmp",
+    "dds",
+    "exr",
+    "ff",
+    "gif",
+    "hdr",
+    "ico",
+    "jpeg",
+    "png",
+    "pnm",
+    "qoi",
+    "rayon",
+    "tga",
+    "tiff",
+    "webp"] }
+log = { version = "0.4.16", features = ["kv_unstable_serde", "serde"] }
+metal = { version = "0.33" }
+objc = { version = "0.2" }
+parking_lot = { version = "0.12.1" }
+
+[target.'cfg(target_os = "macos")'.build-dependencies]
+cbindgen = { version = "0.28.0", default-features = false }
+gpui = { package = "gpui-unofficial", version = "1.18.0-pre" }
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+gpui = { package = "gpui-unofficial", version = "1.18.0-pre", features = ["test-support"] }
+
+[lints]
+rust = { unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("cargo-clippy"))'] }, deprecated = "allow" }
+
+[workspace]
