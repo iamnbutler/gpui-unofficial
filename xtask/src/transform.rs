@@ -237,6 +237,12 @@ fn transform_crate(
         patch_gpui_macos_source(&dest_dir)?;
     }
 
+    // Patch gpui_apple's build.rs, which locates the sibling gpui crate via
+    // a hardcoded "../gpui" path that no longer exists once gpui is renamed.
+    if crate_name == "gpui_apple" {
+        patch_gpui_apple_build_rs(&dest_dir)?;
+    }
+
     Ok(())
 }
 
@@ -766,6 +772,28 @@ fn patch_inspector_cfgs(crate_dir: &Path) -> Result<()> {
 
 /// Patch gpui_macos source to fix unnecessary unsafe block.
 /// NSBeep() is now safe in newer objc bindings.
+/// Patch gpui_apple's build.rs so it finds the sibling `gpui` crate under its
+/// unofficial name. The build script locates gpui's source at build time via
+/// `CARGO_MANIFEST_DIR/../gpui` (to cbindgen shader types out of it), but our
+/// transform renames that sibling directory to `gpui-unofficial`, so the
+/// hardcoded relative path no longer resolves.
+fn patch_gpui_apple_build_rs(crate_dir: &Path) -> Result<()> {
+    let build_rs = crate_dir.join("build.rs");
+    if !build_rs.exists() {
+        return Ok(());
+    }
+
+    let content = fs::read_to_string(&build_rs)?;
+    let patched = content.replace(r#".join("../gpui")"#, r#".join("../gpui-unofficial")"#);
+
+    if patched != content {
+        fs::write(&build_rs, patched)?;
+        println!("  Patched build.rs (gpui sibling dir -> gpui-unofficial)");
+    }
+
+    Ok(())
+}
+
 fn patch_gpui_macos_source(crate_dir: &Path) -> Result<()> {
     let window_rs = crate_dir.join("src/window.rs");
     if !window_rs.exists() {
@@ -1723,6 +1751,39 @@ test-support = ["collections/test-support", "rand"]
                 "{crate_name} must allow deprecated lints for its still-unmigrated cocoa usage"
             );
         }
+    }
+
+    /// `gpui_apple`'s build.rs locates the sibling `gpui` crate via a
+    /// hardcoded `CARGO_MANIFEST_DIR/../gpui` join to cbindgen shader types
+    /// out of it. Our transform renames that sibling directory to
+    /// `gpui-unofficial`, so the unpatched path no longer resolves and the
+    /// build script panics with `ParseCannotOpenFile` -- but only once
+    /// something actually compiles `gpui_apple` (e.g. `cargo build
+    /// --examples` on macOS), not the lighter `cargo check`.
+    #[test]
+    fn patches_gpui_apple_build_rs_sibling_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let crate_dir = dir.path();
+        fs::write(
+            crate_dir.join("build.rs"),
+            r#"fn find_gpui_crate_dir() -> PathBuf {
+    PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../gpui")
+}
+"#,
+        )
+        .unwrap();
+
+        patch_gpui_apple_build_rs(crate_dir).unwrap();
+
+        let patched = fs::read_to_string(crate_dir.join("build.rs")).unwrap();
+        assert!(
+            patched.contains(r#".join("../gpui-unofficial")"#),
+            "build.rs must point at the renamed sibling crate, got:\n{patched}"
+        );
+        assert!(
+            !patched.contains(r#".join("../gpui")"#),
+            "build.rs must not still reference the original \"../gpui\" path"
+        );
     }
 }
 
