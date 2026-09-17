@@ -237,8 +237,9 @@ fn transform_crate(
         patch_gpui_macos_source(&dest_dir)?;
     }
 
-    // Patch gpui_apple's build.rs, which locates the sibling gpui crate via
-    // a hardcoded "../gpui" path that no longer exists once gpui is renamed.
+    // Patch gpui_apple's build.rs, which otherwise assumes that the gpui crate
+    // is an adjacent checkout directory. Published crates live in separate,
+    // versioned Cargo registry directories, so use gpui's manifest path.
     if crate_name == "gpui_apple" {
         patch_gpui_apple_build_rs(&dest_dir)?;
     }
@@ -772,11 +773,11 @@ fn patch_inspector_cfgs(crate_dir: &Path) -> Result<()> {
 
 /// Patch gpui_macos source to fix unnecessary unsafe block.
 /// NSBeep() is now safe in newer objc bindings.
-/// Patch gpui_apple's build.rs so it finds the sibling `gpui` crate under its
-/// unofficial name. The build script locates gpui's source at build time via
-/// `CARGO_MANIFEST_DIR/../gpui` (to cbindgen shader types out of it), but our
-/// transform renames that sibling directory to `gpui-unofficial`, so the
-/// hardcoded relative path no longer resolves.
+///
+/// The upstream gpui_apple build script locates gpui's shader types for
+/// cbindgen. Use the dependency's manifest directory rather than assuming
+/// that the two crates are adjacent directories. The latter only works for
+/// local transformed workspaces and fails for Cargo registry packages.
 fn patch_gpui_apple_build_rs(crate_dir: &Path) -> Result<()> {
     let build_rs = crate_dir.join("build.rs");
     if !build_rs.exists() {
@@ -784,11 +785,14 @@ fn patch_gpui_apple_build_rs(crate_dir: &Path) -> Result<()> {
     }
 
     let content = fs::read_to_string(&build_rs)?;
-    let patched = content.replace(r#".join("../gpui")"#, r#".join("../gpui-unofficial")"#);
+    let patched = content.replace(
+        r#"PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../gpui")"#,
+        r#"gpui::GPUI_MANIFEST_DIR.into()"#,
+    );
 
     if patched != content {
         fs::write(&build_rs, patched)?;
-        println!("  Patched build.rs (gpui sibling dir -> gpui-unofficial)");
+        println!("  Patched build.rs (gpui sibling path -> manifest path)");
     }
 
     Ok(())
@@ -1753,15 +1757,10 @@ test-support = ["collections/test-support", "rand"]
         }
     }
 
-    /// `gpui_apple`'s build.rs locates the sibling `gpui` crate via a
-    /// hardcoded `CARGO_MANIFEST_DIR/../gpui` join to cbindgen shader types
-    /// out of it. Our transform renames that sibling directory to
-    /// `gpui-unofficial`, so the unpatched path no longer resolves and the
-    /// build script panics with `ParseCannotOpenFile` -- but only once
-    /// something actually compiles `gpui_apple` (e.g. `cargo build
-    /// --examples` on macOS), not the lighter `cargo check`.
+    /// `gpui_apple`'s build.rs must work both in a local transformed workspace
+    /// and after Cargo installs the crates in separate registry directories.
     #[test]
-    fn patches_gpui_apple_build_rs_sibling_path() {
+    fn patches_gpui_apple_build_rs_manifest_path() {
         let dir = tempfile::tempdir().unwrap();
         let crate_dir = dir.path();
         fs::write(
@@ -1777,13 +1776,12 @@ test-support = ["collections/test-support", "rand"]
 
         let patched = fs::read_to_string(crate_dir.join("build.rs")).unwrap();
         assert!(
-            patched.contains(r#".join("../gpui-unofficial")"#),
-            "build.rs must point at the renamed sibling crate, got:\n{patched}"
+            patched.contains(r#"gpui::GPUI_MANIFEST_DIR.into()"#),
+            "build.rs must use gpui's manifest path, got:\n{patched}"
         );
         assert!(
-            !patched.contains(r#".join("../gpui")"#),
-            "build.rs must not still reference the original \"../gpui\" path"
+            !patched.contains("CARGO_MANIFEST_DIR"),
+            "build.rs must not use a sibling gpui path, got:\n{patched}"
         );
     }
 }
-
