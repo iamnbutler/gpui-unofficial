@@ -107,6 +107,10 @@ jobs:
           cd crates/gpui-unofficial
           cargo check --features wayland,x11
 
+      - name: Verify isolated package builds
+        run: |
+          cargo run -p xtask --release -- test-isolated
+
   check-macos:
     needs: check-release
     if: needs.check-release.outputs.new_release == 'true'
@@ -139,6 +143,10 @@ jobs:
         run: |
           cd crates/gpui-unofficial
           cargo check
+
+      - name: Verify isolated package builds
+        run: |
+          cargo run -p xtask --release -- test-isolated
 
   check-windows:
     needs: check-release
@@ -174,6 +182,11 @@ jobs:
         run: |
           cd crates/gpui-unofficial
           cargo check
+
+      - name: Verify isolated package builds
+        shell: bash
+        run: |
+          cargo run -p xtask --release -- test-isolated
 
   check-web:
     needs: check-release
