@@ -237,11 +237,10 @@ fn transform_crate(
         patch_gpui_macos_source(&dest_dir)?;
     }
 
-    // Patch gpui_apple's build.rs, which otherwise assumes that the gpui crate
-    // is an adjacent checkout directory. Published crates live in separate,
-    // versioned Cargo registry directories, so use gpui's manifest path.
+    // Patch gpui_apple's build.rs to vendor shader type files and point
+    // build.rs to the vendored crate-local gpui/src directory.
     if crate_name == "gpui_apple" {
-        patch_gpui_apple_build_rs(&dest_dir)?;
+        patch_gpui_apple_build_rs(zed_dir, &dest_dir)?;
     }
 
     Ok(())
@@ -771,28 +770,68 @@ fn patch_inspector_cfgs(crate_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Patch gpui_macos source to fix unnecessary unsafe block.
-/// NSBeep() is now safe in newer objc bindings.
+/// Patch gpui_apple's build.rs so it finds the 5 gpui shader type source files
+/// needed by cbindgen to generate scene.h.
 ///
-/// The upstream gpui_apple build script locates gpui's shader types for
-/// cbindgen. Use the dependency's manifest directory rather than assuming
-/// that the two crates are adjacent directories. The latter only works for
-/// local transformed workspaces and fails for Cargo registry packages.
-fn patch_gpui_apple_build_rs(crate_dir: &Path) -> Result<()> {
+/// Upstream gpui_apple reaches out of its crate boundary to `../gpui/src/`.
+/// When published as an isolated package to crates.io, sibling directories do
+/// not exist. We vendor those 5 source files directly into `gpui/src/` inside
+/// the crate and patch `build.rs` to point to `.join("gpui")`.
+fn patch_gpui_apple_build_rs(zed_dir: &Path, crate_dir: &Path) -> Result<()> {
     let build_rs = crate_dir.join("build.rs");
     if !build_rs.exists() {
         return Ok(());
     }
 
+    // Vendor the 5 gpui source files needed by cbindgen into gpui/src/
+    let gpui_src = zed_dir.join("crates/gpui/src");
+    let dest_gpui_src = crate_dir.join("gpui/src");
+    fs::create_dir_all(&dest_gpui_src)?;
+
+    let shader_type_files = [
+        "scene.rs",
+        "geometry.rs",
+        "color.rs",
+        "window.rs",
+        "platform.rs",
+    ];
+    for file in shader_type_files {
+        let src = gpui_src.join(file);
+        if src.exists() {
+            fs::copy(&src, dest_gpui_src.join(file))?;
+        }
+    }
+
     let content = fs::read_to_string(&build_rs)?;
-    let patched = content.replace(
-        r#"PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../gpui")"#,
+    let patched = content.replace(r#".join("../gpui")"#, r#".join("gpui")"#);
+    let patched = patched.replace(r#".join("../gpui-unofficial")"#, r#".join("gpui")"#);
+    let patched = patched.replace(
         r#"gpui::GPUI_MANIFEST_DIR.into()"#,
+        r#"PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("gpui")"#,
     );
 
     if patched != content {
         fs::write(&build_rs, patched)?;
-        println!("  Patched build.rs (gpui sibling path -> manifest path)");
+        println!("  Patched build.rs (vendored gpui shader types -> crate-local gpui/src)");
+    }
+
+    // Ensure Cargo.toml packages the vendored gpui/ directory
+    let cargo_toml_path = crate_dir.join("Cargo.toml");
+    if cargo_toml_path.exists() {
+        let toml_content = fs::read_to_string(&cargo_toml_path)?;
+        let mut doc: DocumentMut = toml_content.parse()?;
+        if let Some(package) = doc.get_mut("package").and_then(|p| p.as_table_like_mut()) {
+            if !package.contains_key("include") {
+                let mut arr = toml_edit::Array::new();
+                arr.push("src/**/*");
+                arr.push("build.rs");
+                arr.push("gpui/**/*");
+                arr.push("Cargo.toml");
+                arr.push("LICENSE*");
+                package.insert("include", Item::Value(Value::Array(arr)));
+                fs::write(&cargo_toml_path, doc.to_string())?;
+            }
+        }
     }
 
     Ok(())
@@ -1762,7 +1801,17 @@ test-support = ["collections/test-support", "rand"]
     #[test]
     fn patches_gpui_apple_build_rs_manifest_path() {
         let dir = tempfile::tempdir().unwrap();
-        let crate_dir = dir.path();
+        let zed_dir = dir.path().join("zed");
+        let crate_dir = dir.path().join("gpui_apple");
+
+        let gpui_src = zed_dir.join("crates/gpui/src");
+        fs::create_dir_all(&gpui_src).unwrap();
+        fs::create_dir_all(&crate_dir).unwrap();
+
+        for file in ["scene.rs", "geometry.rs", "color.rs", "window.rs", "platform.rs"] {
+            fs::write(gpui_src.join(file), "// dummy shader type file").unwrap();
+        }
+
         fs::write(
             crate_dir.join("build.rs"),
             r#"fn find_gpui_crate_dir() -> PathBuf {
@@ -1772,16 +1821,24 @@ test-support = ["collections/test-support", "rand"]
         )
         .unwrap();
 
-        patch_gpui_apple_build_rs(crate_dir).unwrap();
+        patch_gpui_apple_build_rs(&zed_dir, &crate_dir).unwrap();
 
         let patched = fs::read_to_string(crate_dir.join("build.rs")).unwrap();
         assert!(
-            patched.contains(r#"gpui::GPUI_MANIFEST_DIR.into()"#),
-            "build.rs must use gpui's manifest path, got:\n{patched}"
+            patched.contains(r#".join("gpui")"#),
+            "build.rs must point at crate-local vendored gpui dir, got:\n{patched}"
         );
         assert!(
-            !patched.contains("CARGO_MANIFEST_DIR"),
-            "build.rs must not use a sibling gpui path, got:\n{patched}"
+            !patched.contains("../gpui"),
+            "build.rs must not contain sibling path, got:\n{patched}"
         );
+
+        // Verify that all 5 files were vendored into gpui/src/
+        for file in ["scene.rs", "geometry.rs", "color.rs", "window.rs", "platform.rs"] {
+            assert!(
+                crate_dir.join("gpui/src").join(file).exists(),
+                "vendored file {file} must exist in gpui/src/"
+            );
+        }
     }
 }
