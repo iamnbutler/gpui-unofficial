@@ -1,5 +1,6 @@
 mod bump;
 mod publish;
+mod test_isolated;
 mod transform;
 mod verify;
 
@@ -73,6 +74,16 @@ enum Commands {
         #[arg(long)]
         verbose: bool,
     },
+
+    /// Test building crates in an isolated sandbox with no sibling directories,
+    /// exactly matching how they build when installed as cargo registry dependencies.
+    TestIsolated {
+        #[arg(long, default_value = "crates")]
+        crates_dir: String,
+        /// Specific crate name to test (e.g., gpui_apple). Tests all if omitted.
+        #[arg(long = "crate")]
+        target_crate: Option<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -105,5 +116,8 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
+
+        Commands::TestIsolated { crates_dir, target_crate } =>
+            test_isolated::run(&crates_dir, target_crate.as_deref()),
     }
 }
