@@ -5,9 +5,9 @@ description: |
 
 on:
   workflow_run:
-    workflows: ["Sync Zed Releases", "Release", "CI"]
+    workflows: ["Sync Zed Releases", "Validate Release Branch", "Publish to Crates.io", "CI"]
     types: [completed]
-    branches: [main]
+    branches: [main, "release/**"]
 
 if: ${{ github.event.workflow_run.conclusion == 'failure' }}
 
