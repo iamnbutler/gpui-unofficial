@@ -232,6 +232,13 @@ fn transform_crate(
         patch_inspector_cfgs(&dest_dir)?;
     }
 
+    // gpui_apple's build.rs needs gpui's own manifest directory (see
+    // patch_gpui_apple_build_rs below) to locate shader sources for cbindgen,
+    // since a published gpui_apple no longer sits next to a gpui checkout.
+    if crate_name == "gpui" {
+        add_gpui_manifest_dir_const(&dest_dir)?;
+    }
+
     // Patch gpui_macos to fix unnecessary unsafe block
     if crate_name == "gpui_macos" {
         patch_gpui_macos_source(&dest_dir)?;
@@ -361,6 +368,16 @@ fn transform_cargo_toml(
     transform_dependencies(&mut doc, "dependencies", workspace_deps, &version, output_dir, use_local_deps, &mut removed_optionals)?;
     transform_dependencies(&mut doc, "dev-dependencies", workspace_deps, &version, output_dir, use_local_deps, &mut removed_optionals)?;
     transform_dependencies(&mut doc, "build-dependencies", workspace_deps, &version, output_dir, use_local_deps, &mut removed_optionals)?;
+
+    // gpui_apple's build.rs (patched in patch_gpui_apple_build_rs) resolves
+    // gpui's shader sources via `gpui::GPUI_MANIFEST_DIR`, which requires
+    // `gpui` to be a build-dependency. Upstream zed never declares it as one
+    // -- the original build.rs just walked a sibling directory -- so mirror
+    // the already-transformed runtime `gpui` dependency into
+    // [build-dependencies] here.
+    if original_name == "gpui_apple" {
+        add_gpui_build_dependency(&mut doc);
+    }
 
     // Handle target-specific dependencies
     if let Some(target) = doc.get_mut("target") {
@@ -567,6 +584,22 @@ fn transform_dependencies(
     Ok(())
 }
 
+/// Mirror the (already-transformed) `[dependencies].gpui` entry into
+/// `[build-dependencies].gpui`, creating the table if needed. No-op if
+/// `gpui_apple` doesn't depend on `gpui` at runtime (it always should).
+fn add_gpui_build_dependency(doc: &mut DocumentMut) {
+    let Some(gpui_dep) = doc.get("dependencies").and_then(|d| d.get("gpui")).cloned() else {
+        return;
+    };
+
+    if !doc.contains_key("build-dependencies") {
+        doc.insert("build-dependencies", Item::Table(toml_edit::Table::new()));
+    }
+    if let Some(build_deps) = doc.get_mut("build-dependencies").and_then(|d| d.as_table_like_mut()) {
+        build_deps.insert("gpui", gpui_dep);
+    }
+}
+
 fn resolve_workspace_dep(workspace_def: &Item, usage: &Item) -> Result<Option<Item>> {
     // Get the base definition from workspace.
     // Git fields (git/rev/branch/tag) are intentionally NOT copied — crates.io rejects them.
@@ -768,6 +801,26 @@ fn patch_inspector_cfgs(crate_dir: &Path) -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+/// Export gpui's own manifest directory as a public constant so
+/// `gpui_apple`'s build.rs (see `patch_gpui_apple_build_rs`) can locate
+/// gpui's shader sources through the `gpui` build-dependency instead of
+/// assuming an adjacent checkout directory.
+fn add_gpui_manifest_dir_const(crate_dir: &Path) -> Result<()> {
+    let lib_rs = crate_dir.join("src/lib.rs");
+    if !lib_rs.exists() {
+        return Ok(());
+    }
+
+    let content = fs::read_to_string(&lib_rs)?;
+    let marker = "pub const GPUI_MANIFEST_DIR: &str = env!(\"CARGO_MANIFEST_DIR\");\n";
+    if content.contains("GPUI_MANIFEST_DIR") {
+        return Ok(());
+    }
+
+    fs::write(&lib_rs, format!("{marker}{content}"))?;
     Ok(())
 }
 
@@ -1783,5 +1836,51 @@ test-support = ["collections/test-support", "rand"]
             !patched.contains("CARGO_MANIFEST_DIR"),
             "build.rs must not use a sibling gpui path, got:\n{patched}"
         );
+    }
+
+    /// `gpui::GPUI_MANIFEST_DIR` (referenced by the patched `gpui_apple`
+    /// build.rs above) only resolves if the `gpui` crate actually exports it.
+    #[test]
+    fn adds_gpui_manifest_dir_const_to_gpui_lib_rs() {
+        let dir = tempfile::tempdir().unwrap();
+        let crate_dir = dir.path();
+        fs::create_dir_all(crate_dir.join("src")).unwrap();
+        fs::write(crate_dir.join("src/lib.rs"), "pub struct Foo;\n").unwrap();
+
+        add_gpui_manifest_dir_const(crate_dir).unwrap();
+
+        let patched = fs::read_to_string(crate_dir.join("src/lib.rs")).unwrap();
+        assert!(
+            patched.contains(r#"pub const GPUI_MANIFEST_DIR: &str = env!("CARGO_MANIFEST_DIR");"#),
+            "gpui's lib.rs must export GPUI_MANIFEST_DIR, got:\n{patched}"
+        );
+        assert!(
+            patched.contains("pub struct Foo;"),
+            "existing lib.rs content must be preserved, got:\n{patched}"
+        );
+    }
+
+    /// `gpui::GPUI_MANIFEST_DIR.into()` in `gpui_apple`'s build.rs is used
+    /// from a build script, so `gpui` must be a build-dependency, not just a
+    /// regular one -- upstream zed never declares it as such since the
+    /// original build.rs only walked a sibling directory.
+    #[test]
+    fn adds_gpui_build_dependency_mirroring_runtime_dependency() {
+        let mut doc: DocumentMut = r#"
+[dependencies]
+gpui = { package = "gpui-unofficial", version = "1.21.0" }
+"#
+        .parse()
+        .unwrap();
+
+        add_gpui_build_dependency(&mut doc);
+
+        let build_dep = &doc["build-dependencies"]["gpui"];
+        assert_eq!(
+            build_dep["package"].as_str(),
+            Some("gpui-unofficial"),
+            "build-dependency must alias the same package as the runtime dependency"
+        );
+        assert_eq!(build_dep["version"].as_str(), Some("1.21.0"));
     }
 }
