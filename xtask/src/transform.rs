@@ -29,7 +29,6 @@ pub const CRATE_PUBLISH_ORDER: &[&str] = &[
     "http_client",
     "http_client_tls",
     "reqwest_client",
-    "media",
     // Tier 3 - Main crates
     "gpui_macros",
     "gpui",
