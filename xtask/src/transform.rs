@@ -347,6 +347,7 @@ fn transform_cargo_toml(
                 dep.insert("package", "gpui-platform-gpui-unofficial".into());
                 if use_local_deps {
                     dep.insert("path", "../gpui-platform-gpui-unofficial".into());
+                    dep.insert("version", version.clone().into());
                 } else {
                     dep.insert("version", version.clone().into());
                 }
@@ -468,9 +469,13 @@ fn transform_dependencies(
                     new_dep.insert("package", unofficial.as_str().into());
 
                     if use_local_deps {
-                        // Use path dependency for local testing (relative to sibling crate)
+                        // Use path dependency for local testing (relative to sibling crate),
+                        // plus a version requirement: `cargo package` rejects path
+                        // dependencies that don't also specify a version, since the
+                        // packaged manifest can't reference local paths.
                         let relative_path = format!("../{unofficial}");
                         new_dep.insert("path", relative_path.into());
+                        new_dep.insert("version", version.into());
                     } else {
                         // Use version for publishing
                         new_dep.insert("version", version.into());
