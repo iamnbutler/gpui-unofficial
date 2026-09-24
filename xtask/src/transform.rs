@@ -711,22 +711,31 @@ fn remove_inspector_feature(doc: &mut DocumentMut) {
         }
     }
 
-    // Remove from dependencies
-    if let Some(deps) = doc.get_mut("dependencies") {
-        if let Some(table) = deps.as_table_like_mut() {
-            // Remove gpui dependency that's only used for inspector
-            let dep_names: Vec<_> = table.iter().map(|(k, _)| k.to_string()).collect();
-            for name in dep_names {
-                if let Some(dep) = table.get(&name) {
-                    if let Some(dep_table) = dep.as_table_like() {
-                        // Check if this dep is only for inspector feature
-                        if let Some(features) = dep_table.get("features") {
-                            if features.as_array().is_some_and(|arr| {
-                                arr.iter().any(|f| f.as_str() == Some("inspector"))
-                                    && arr.len() == 1
-                            }) {
-                                table.remove(&name);
-                            }
+    // Remove the inspector-only dependency from every dependency table it
+    // could appear in. zed's gpui_macros declares its `gpui` dev-dependency
+    // (used only for inspector-gated doctests) under `[dev-dependencies]`
+    // rather than `[dependencies]`, so both must be checked or the dev-dep
+    // survives and creates a forward-reference cycle back to `gpui` (which
+    // depends on `gpui_macros`) during isolated packaging.
+    for section in ["dependencies", "dev-dependencies", "build-dependencies"] {
+        let Some(deps) = doc.get_mut(section) else {
+            continue;
+        };
+        let Some(table) = deps.as_table_like_mut() else {
+            continue;
+        };
+        // Remove gpui dependency that's only used for inspector
+        let dep_names: Vec<_> = table.iter().map(|(k, _)| k.to_string()).collect();
+        for name in dep_names {
+            if let Some(dep) = table.get(&name) {
+                if let Some(dep_table) = dep.as_table_like() {
+                    // Check if this dep is only for inspector feature
+                    if let Some(features) = dep_table.get("features") {
+                        if features
+                            .as_array()
+                            .is_some_and(|arr| arr.iter().any(|f| f.as_str() == Some("inspector")) && arr.len() == 1)
+                        {
+                            table.remove(&name);
                         }
                     }
                 }
@@ -1915,6 +1924,39 @@ gpui_util = { workspace = true }
         assert!(
             doc["dependencies"]["gpui_util"].get("path").is_none(),
             "version-deps transform must not add a path, got:\n{out}"
+        );
+    }
+
+    /// zed's gpui_macros declares its inspector-only `gpui` dependency under
+    /// `[dev-dependencies]`, not `[dependencies]`. Left in place, this becomes
+    /// a forward-reference dev-dependency on `gpui` — which itself depends on
+    /// `gpui_macros` — breaking isolated packaging (`cargo package`'s lockfile
+    /// resolution needs every dependency, including dev-dependencies, to
+    /// already be resolvable).
+    #[test]
+    fn remove_inspector_feature_strips_dev_dependency_too() {
+        let mut doc: DocumentMut = r#"[package]
+name = "gpui_macros"
+version = "0.1.0"
+
+[features]
+inspector = []
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["inspector"] }
+"#
+        .parse()
+        .unwrap();
+
+        remove_inspector_feature(&mut doc);
+
+        assert!(
+            doc.get("features").is_none_or(|f| f.get("inspector").is_none()),
+            "inspector feature must be removed, got:\n{doc}"
+        );
+        assert!(
+            doc["dev-dependencies"].get("gpui").is_none(),
+            "inspector-only dev-dependency must be removed, got:\n{doc}"
         );
     }
 }
