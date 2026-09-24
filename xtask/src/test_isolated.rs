@@ -118,16 +118,22 @@ fn build_external_vendor_dir(all_crates: &[(String, PathBuf, &str)], vendor_dir:
         "[package]\nname = \"vendor-aggregator\"\nversion = \"0.0.0\"\nedition = \"2021\"\npublish = false\n\n[dependencies]\n",
     );
     let mut extra_dev_deps: BTreeMap<String, String> = BTreeMap::new();
-    for (u_name, dir, raw_name) in all_crates {
+    for (u_name, dir, _raw_name) in all_crates {
         let path_str = dir.to_string_lossy().replace('\\', "/");
-        // Match the extra features `package_and_vendor`'s `cargo check` step
-        // enables, so their optional dependencies get vendored too.
-        if cfg!(target_os = "linux") && (*raw_name == "gpui" || *raw_name == "gpui_linux") {
-            manifest.push_str(&format!(
-                "{u_name} = {{ path = {path_str:?}, features = [\"wayland\", \"x11\"] }}\n"
-            ));
-        } else {
+        // Every crate is later packaged standalone via `cargo package` in
+        // `package_and_vendor`, and that per-crate lockfile resolution
+        // requires versions for ALL of that crate's own optional
+        // dependencies, regardless of which features are active. Activating
+        // every declared feature here (rather than a hardcoded subset) makes
+        // sure their optional deps (e.g. gpui's `hdrhistogram` behind
+        // `profiler`, ztracing's `tracing-tracy`/`tracy-client` behind
+        // `tracy`) all land in the vendor directory too.
+        let features = collect_feature_names(dir)?;
+        if features.is_empty() {
             manifest.push_str(&format!("{u_name} = {{ path = {path_str:?} }}\n"));
+        } else {
+            let features_list = features.iter().map(|f| format!("{f:?}")).collect::<Vec<_>>().join(", ");
+            manifest.push_str(&format!("{u_name} = {{ path = {path_str:?}, features = [{features_list}] }}\n"));
         }
 
         collect_external_dev_dependencies(dir, &mut extra_dev_deps)?;
@@ -161,6 +167,31 @@ fn build_external_vendor_dir(all_crates: &[(String, PathBuf, &str)], vendor_dir:
     }
 
     Ok(())
+}
+
+/// Collect every feature name declared in a crate's `[features]` table
+/// (excluding `default`, since default features are always active). Used to
+/// activate every feature on the vendor aggregator's path dependency on this
+/// crate, so `cargo vendor` sees (and pulls in) every optional dependency the
+/// crate could possibly need.
+fn collect_feature_names(dir: &Path) -> Result<Vec<String>> {
+    let manifest_path = dir.join("Cargo.toml");
+    let Ok(content) = fs::read_to_string(&manifest_path) else {
+        return Ok(Vec::new());
+    };
+    let doc: DocumentMut = content
+        .parse()
+        .with_context(|| format!("Failed to parse {}", manifest_path.display()))?;
+
+    let Some(features) = doc.get("features").and_then(|f| f.as_table_like()) else {
+        return Ok(Vec::new());
+    };
+
+    Ok(features
+        .iter()
+        .map(|(name, _)| name.to_string())
+        .filter(|name| name != "default")
+        .collect())
 }
 
 /// Collect every non-path `[dev-dependencies]` entry declared by the crate at
