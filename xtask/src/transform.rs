@@ -355,14 +355,22 @@ fn transform_cargo_toml(
         }
     }
 
-    // Remove inspector feature from gpui_macros and gpui. Must run before
-    // `transform_dependencies` below: that pass rewrites the internal `gpui`
-    // dev-dependency's `features = ["inspector"]` array (stripping the sole
-    // "inspector" entry down to an empty, then-omitted array) before this
-    // function's own `features == ["inspector"]` detection ever sees it,
-    // which would silently leave the whole dependency in place and recreate
-    // the gpui_macros -> gpui isolated-packaging cycle it's meant to remove.
-    if original_name == "gpui_macros" || original_name == "gpui" {
+    // Remove inspector feature from gpui_macros, gpui, and gpui_platform.
+    // Must run before `transform_dependencies` below: that pass rewrites the
+    // internal `gpui` dev-dependency's `features = ["inspector"]` array
+    // (stripping the sole "inspector" entry down to an empty, then-omitted
+    // array) before this function's own `features == ["inspector"]`
+    // detection ever sees it, which would silently leave the whole
+    // dependency in place and recreate the gpui_macros -> gpui
+    // isolated-packaging cycle it's meant to remove.
+    //
+    // `gpui_platform` forwards its own `inspector` feature to `gpui/inspector`
+    // (`inspector = ["gpui/inspector"]`). Since `gpui`'s `inspector` feature is
+    // stripped above, leaving that forwarding entry in place makes
+    // `gpui-platform-gpui-unofficial` request a feature `gpui-unofficial`
+    // doesn't have as soon as anything (e.g. `test-isolated`'s
+    // all-features vendor probe) activates it.
+    if original_name == "gpui_macros" || original_name == "gpui" || original_name == "gpui_platform" {
         remove_inspector_feature(&mut doc);
     }
 
@@ -2009,6 +2017,48 @@ gpui = { workspace = true, features = ["inspector"] }
         assert!(
             doc.get("dev-dependencies").is_none_or(|d| d.get("gpui").is_none()),
             "inspector-only dev-dependency on gpui must not survive the full transform, got:\n{out}"
+        );
+    }
+
+    /// Regression test: `gpui_platform` forwards its own `inspector` feature
+    /// to `gpui`'s (`inspector = ["gpui/inspector"]`) rather than declaring an
+    /// inspector-gated dependency directly. Since `gpui`'s `inspector` feature
+    /// is stripped by the full transform, leaving this forwarding entry in
+    /// place makes the transformed `gpui-platform-gpui-unofficial` reference a
+    /// feature `gpui-unofficial` no longer has -- which `test-isolated`'s
+    /// all-features vendor probe trips over as soon as it activates every
+    /// declared feature.
+    #[test]
+    fn inspector_feature_forwarding_removed_from_gpui_platform() {
+        let dir = tempfile::tempdir().unwrap();
+        let crate_dir = dir.path().join("gpui_platform");
+        fs::create_dir_all(&crate_dir).unwrap();
+        fs::write(
+            crate_dir.join("Cargo.toml"),
+            r#"[package]
+name = "gpui_platform"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+inspector = ["gpui/inspector"]
+
+[dependencies]
+gpui.workspace = true
+"#,
+        )
+        .unwrap();
+
+        let workspace_deps: HashMap<String, Item> = HashMap::new();
+        transform_cargo_toml(&crate_dir, dir.path(), "gpui_platform", &workspace_deps, "v1.21.0", true).unwrap();
+
+        let out = fs::read_to_string(crate_dir.join("Cargo.toml")).unwrap();
+        let doc: DocumentMut = out.parse().unwrap();
+
+        assert!(
+            doc.get("features").is_none_or(|f| f.get("inspector").is_none()),
+            "gpui_platform's inspector feature-forwarding entry must not survive the full transform, got:\n{out}"
         );
     }
 
