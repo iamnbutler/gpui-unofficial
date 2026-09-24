@@ -778,6 +778,11 @@ fn patch_inspector_cfgs(crate_dir: &Path) -> Result<()> {
                 .replace(
                     "all(any(feature = \"inspector\", debug_assertions), not(rust_analyzer))",
                     "all(debug_assertions, not(rust_analyzer))"
+                )
+                // Test-gated case: #[cfg(all(test, any(feature = "inspector", debug_assertions)))]
+                .replace(
+                    "#[cfg(all(test, any(feature = \"inspector\", debug_assertions)))]",
+                    "#[cfg(all(test, debug_assertions))]"
                 );
 
             if patched != content {
@@ -2004,6 +2009,38 @@ gpui = { workspace = true, features = ["inspector"] }
         assert!(
             doc.get("dev-dependencies").is_none_or(|d| d.get("gpui").is_none()),
             "inspector-only dev-dependency on gpui must not survive the full transform, got:\n{out}"
+        );
+    }
+
+    /// Regression test: zed's `window.rs` gates some test-only code with
+    /// `#[cfg(all(test, any(feature = "inspector", debug_assertions)))]`, a
+    /// pattern `patch_inspector_cfgs` previously didn't recognize. Since the
+    /// `inspector` feature is stripped from the transformed `Cargo.toml`, the
+    /// unrewritten `feature = "inspector"` reference trips `-D warnings`'
+    /// `unexpected_cfgs` lint and fails the build.
+    #[test]
+    fn patch_inspector_cfgs_handles_test_gated_pattern() {
+        let dir = tempfile::tempdir().unwrap();
+        let src_dir = dir.path().join("src");
+        fs::create_dir_all(&src_dir).unwrap();
+        fs::write(
+            src_dir.join("window.rs"),
+            r#"#[cfg(all(test, any(feature = "inspector", debug_assertions)))]
+fn some_test_only_fn() {}
+"#,
+        )
+        .unwrap();
+
+        patch_inspector_cfgs(dir.path()).unwrap();
+
+        let out = fs::read_to_string(src_dir.join("window.rs")).unwrap();
+        assert!(
+            !out.contains("inspector"),
+            "inspector feature reference must be rewritten, got:\n{out}"
+        );
+        assert!(
+            out.contains("#[cfg(all(test, debug_assertions))]"),
+            "expected test-gated cfg to be simplified to debug_assertions, got:\n{out}"
         );
     }
 }
