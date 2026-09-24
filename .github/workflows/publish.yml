@@ -1,0 +1,66 @@
+name: Publish to Crates.io
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Release branch to publish (e.g. release/0.233.10-0)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Dry run only (no crates.io upload)'
+        required: true
+        type: boolean
+        default: false
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout target ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch || github.ref }}
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build xtask
+        run: cargo build -p xtask --release
+
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          DRY_RUN_ARG=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            DRY_RUN_ARG="--dry-run"
+          fi
+          cargo run -p xtask --release -- publish --crates-dir crates $DRY_RUN_ARG
+
+      - name: Create GitHub Release & Update generated branch
+        if: inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Read version from Cargo.toml
+          VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' crates/gpui-unofficial/Cargo.toml | head -n1)
+          BRANCH="${{ inputs.branch || github.ref_name }}"
+
+          # Create GitHub release if not already created by tag
+          gh release create "v${VERSION}" \
+            --title "gpui-unofficial ${VERSION}" \
+            --notes "Automated release published from ${BRANCH}." || true
+
+          # Fast-forward rolling generated branch
+          git checkout -B generated
+          git push origin generated --force
