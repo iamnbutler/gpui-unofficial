@@ -53,9 +53,19 @@ pub fn run(crates_dir: &str, target_crate: Option<&str>) -> Result<()> {
     // directory incrementally below, right after it is successfully
     // packaged, so later crates in `CRATE_PUBLISH_ORDER` can resolve it
     // without requiring a prior real publish.
+    // Canonicalized up front: on macOS, `tempdir()` yields paths under
+    // `/var/folders/...`, which is itself a symlink to `/private/var/folders/...`.
+    // Cargo canonicalizes `CARGO_MANIFEST_DIR` for build scripts, but the
+    // `file!()`-derived paths some build scripts use (e.g. askama-based
+    // template lookups in transitive deps like `mkv-element`) aren't
+    // canonicalized the same way, so a symlinked vendor/sandbox path causes
+    // those two forms to diverge mid-build and produces bogus concatenated
+    // paths. Keeping every path here canonical from the start avoids that.
     let vendor_dir = tempdir().context("Failed to create vendor directory")?;
-    build_external_vendor_dir(&all_crates, vendor_dir.path())?;
-    write_source_replace_config(&crates_path.join(".cargo").join("config.toml"), vendor_dir.path())?;
+    let vendor_dir_path =
+        canonicalize_no_verbatim(vendor_dir.path()).context("Failed to canonicalize vendor directory")?;
+    build_external_vendor_dir(&all_crates, &vendor_dir_path)?;
+    write_source_replace_config(&crates_path.join(".cargo").join("config.toml"), &vendor_dir_path)?;
 
     let mut failed = Vec::new();
 
@@ -65,7 +75,7 @@ pub fn run(crates_dir: &str, target_crate: Option<&str>) -> Result<()> {
             print!("Packaging and testing {u_name}... ");
         }
 
-        match package_and_vendor(crate_dir, u_name, raw_name, is_under_test, vendor_dir.path()) {
+        match package_and_vendor(crate_dir, u_name, raw_name, is_under_test, &vendor_dir_path) {
             Ok(()) => {
                 if is_under_test {
                     println!("OK");
@@ -324,7 +334,8 @@ fn package_and_vendor(
 
     // 3. Create an isolated sandbox temporary directory
     let sandbox = tempdir().context("Failed to create temporary directory")?;
-    let sandbox_path = sandbox.path();
+    let sandbox_path =
+        canonicalize_no_verbatim(sandbox.path()).context("Failed to canonicalize sandbox directory")?;
 
     // Extract the .crate tarball into the sandbox
     let tar_status = Command::new("tar")
