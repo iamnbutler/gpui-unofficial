@@ -3,6 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tempfile::tempdir;
+use toml_edit::DocumentMut;
+use walkdir::WalkDir;
 
 use crate::transform::{crate_name_from_path, unofficial_name, CRATE_PUBLISH_ORDER};
 
@@ -11,63 +13,72 @@ pub fn run(crates_dir: &str, target_crate: Option<&str>) -> Result<()> {
         .canonicalize()
         .with_context(|| format!("Failed to canonicalize crates dir: {crates_dir}"))?;
 
-    let crates_to_test: Vec<String> = if let Some(specific) = target_crate {
-        vec![specific.to_string()]
+    // Every crate transform.rs actually produced on disk, in topological
+    // (dependency-first) order. `cargo package`'s lockfile-resolution phase
+    // considers every `[target.'cfg(...)']` dependency across all platforms
+    // regardless of host, so every sibling that exists on disk must be
+    // packageable (and vendored, see below) even if this run isn't asked to
+    // fully test it — otherwise later crates in the order fail to resolve it.
+    let all_crates: Vec<(String, PathBuf, &'static str)> = CRATE_PUBLISH_ORDER
+        .iter()
+        .filter_map(|&entry| {
+            let raw_name = crate_name_from_path(entry);
+            let u_name = unofficial_name(raw_name);
+            let dir = crates_path.join(&u_name);
+            dir.exists().then_some((u_name, dir, raw_name))
+        })
+        .collect();
+
+    let test_raw_names: Vec<&str> = if let Some(specific) = target_crate {
+        vec![specific]
     } else {
         CRATE_PUBLISH_ORDER
             .iter()
-            .filter(|c| is_supported_on_current_host(c))
-            .map(|s| s.to_string())
+            .map(|entry| crate_name_from_path(entry))
+            .filter(|raw| is_supported_on_current_host(raw))
             .collect()
     };
 
-    println!("Testing isolated package builds for {} crate(s)...", crates_to_test.len());
+    println!("Testing isolated package builds for {} crate(s)...", test_raw_names.len());
+
+    // `cargo package`'s dependency resolution ignores `[patch]`/`[replace]`
+    // sections entirely, so it can't be redirected to sibling crates that
+    // way (the previous approach). It DOES honor a `[source] replace-with`
+    // directory-source override. A single `cargo vendor` run from a
+    // synthetic aggregator crate that path-depends on every crate on disk
+    // captures the full union of genuine external (crates.io) dependencies
+    // in one shot (vendoring skips path dependencies, so internal siblings
+    // are left out). Each internal sibling is then added to this same
+    // directory incrementally below, right after it is successfully
+    // packaged, so later crates in `CRATE_PUBLISH_ORDER` can resolve it
+    // without requiring a prior real publish.
+    let vendor_dir = tempdir().context("Failed to create vendor directory")?;
+    build_external_vendor_dir(&all_crates, vendor_dir.path())?;
+    write_source_replace_config(&crates_path.join(".cargo").join("config.toml"), vendor_dir.path())?;
 
     let mut failed = Vec::new();
 
-    for crate_entry in crates_to_test {
-        let crate_dir = if crates_path.join(&crate_entry).exists() {
-            crates_path.join(&crate_entry)
-        } else {
-            let raw_name = crate_name_from_path(&crate_entry);
-            let u_name = unofficial_name(raw_name);
-            crates_path.join(&u_name)
-        };
-
-        let u_name = crate_dir.file_name().unwrap_or_default().to_string_lossy().to_string();
-
-        if !crate_dir.exists() {
-            println!("Skipping {crate_entry} (directory does not exist at {})", crate_dir.display());
-            continue;
+    for (u_name, crate_dir, raw_name) in &all_crates {
+        let is_under_test = test_raw_names.contains(raw_name);
+        if is_under_test {
+            print!("Packaging and testing {u_name}... ");
         }
 
-        // Generate the [patch.crates-io] content pointing to sibling crates,
-        // strictly EXCLUDING the crate under test to prevent package collision in lockfile.
-        let mut patch_section = String::from("\n[patch.crates-io]\n");
-        for sibling_entry in CRATE_PUBLISH_ORDER {
-            let raw_sibling = crate_name_from_path(sibling_entry);
-            let sibling_u_name = unofficial_name(raw_sibling);
-            if sibling_u_name != u_name {
-                let dir_path = crates_path.join(&sibling_u_name);
-                if dir_path.exists() {
-                    let path_str = dir_path.to_string_lossy().replace('\\', "/");
-                    patch_section.push_str(&format!(
-                        "{} = {{ path = {:?} }}\n",
-                        sibling_u_name,
-                        path_str
-                    ));
+        match package_and_vendor(crate_dir, u_name, raw_name, is_under_test, vendor_dir.path()) {
+            Ok(()) => {
+                if is_under_test {
+                    println!("OK");
                 }
             }
-        }
-
-        print!("Packaging and testing {u_name}... ");
-
-        let raw_name = crate_name_from_path(&crate_entry);
-        match test_single_crate_isolated(&crate_dir, raw_name, &patch_section) {
-            Ok(()) => println!("OK"),
             Err(e) => {
-                println!("FAILED\n{}", e);
-                failed.push(u_name);
+                if is_under_test {
+                    println!("FAILED\n{}", e);
+                } else {
+                    // Not under test on this host/run, but still required to
+                    // seed the vendor directory for downstream siblings.
+                    println!("Seeding {u_name} into the vendor directory FAILED\n{}", e);
+                }
+                failed.push(u_name.clone());
             }
         }
     }
@@ -80,9 +91,8 @@ pub fn run(crates_dir: &str, target_crate: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-fn is_supported_on_current_host(crate_entry: &str) -> bool {
-    let raw = crate_name_from_path(crate_entry);
-    match raw {
+fn is_supported_on_current_host(raw_name: &str) -> bool {
+    match raw_name {
         "gpui_apple" | "gpui_macos" => cfg!(target_os = "macos"),
         "gpui_linux" => cfg!(target_os = "linux"),
         "gpui_windows" => cfg!(target_os = "windows"),
@@ -91,8 +101,78 @@ fn is_supported_on_current_host(crate_entry: &str) -> bool {
     }
 }
 
-fn test_single_crate_isolated(crate_dir: &Path, raw_name: &str, patch_section: &str) -> Result<()> {
-    // 1. Run `cargo package --allow-dirty --no-verify` inside the crate dir
+/// Build a directory source containing every genuine external (crates.io)
+/// dependency reachable from any crate on disk, by vendoring from a
+/// synthetic crate that path-depends on all of them at once. Path
+/// dependencies resolve directly against the listed path (ordinary Cargo
+/// resolution, unlike packaging resolution, honors local paths), so only
+/// true external dependencies end up here.
+fn build_external_vendor_dir(all_crates: &[(String, PathBuf, &str)], vendor_dir: &Path) -> Result<()> {
+    let aggregator = tempdir().context("Failed to create aggregator directory")?;
+    let aggregator_path = aggregator.path();
+    fs::create_dir_all(aggregator_path.join("src"))?;
+    fs::write(aggregator_path.join("src/lib.rs"), "")?;
+
+    let mut manifest = String::from(
+        "[package]\nname = \"vendor-aggregator\"\nversion = \"0.0.0\"\nedition = \"2021\"\npublish = false\n\n[dependencies]\n",
+    );
+    for (u_name, dir, raw_name) in all_crates {
+        let path_str = dir.to_string_lossy().replace('\\', "/");
+        // Match the extra features `package_and_vendor`'s `cargo check` step
+        // enables, so their optional dependencies get vendored too.
+        if cfg!(target_os = "linux") && (*raw_name == "gpui" || *raw_name == "gpui_linux") {
+            manifest.push_str(&format!(
+                "{u_name} = {{ path = {path_str:?}, features = [\"wayland\", \"x11\"] }}\n"
+            ));
+        } else {
+            manifest.push_str(&format!("{u_name} = {{ path = {path_str:?} }}\n"));
+        }
+    }
+    manifest.push_str("\n[workspace]\n");
+    fs::write(aggregator_path.join("Cargo.toml"), manifest)?;
+
+    let output = Command::new("cargo")
+        .args(["vendor", "--versioned-dirs"])
+        .arg(vendor_dir)
+        .current_dir(aggregator_path)
+        .output()
+        .context("Failed to run cargo vendor")?;
+
+    if !output.status.success() {
+        bail!(
+            "cargo vendor failed while collecting external dependencies:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    Ok(())
+}
+
+fn write_source_replace_config(config_path: &Path, vendor_dir: &Path) -> Result<()> {
+    if let Some(parent) = config_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let vendor_str = vendor_dir.to_string_lossy().replace('\\', "/");
+    fs::write(
+        config_path,
+        format!(
+            "[source.crates-io]\nreplace-with = \"vendored-sources\"\n\n[source.vendored-sources]\ndirectory = \"{vendor_str}\"\n"
+        ),
+    )?;
+    Ok(())
+}
+
+fn package_and_vendor(
+    crate_dir: &Path,
+    u_name: &str,
+    raw_name: &str,
+    run_check: bool,
+    vendor_dir: &Path,
+) -> Result<()> {
+    // 1. Run `cargo package --allow-dirty --no-verify` inside the crate dir.
+    // Cargo's config search walks up from `crate_dir` through its ancestors,
+    // so this picks up the `[source] replace-with` config written at the
+    // shared `crates_path` level without needing a copy per crate.
     let pkg_output = Command::new("cargo")
         .args(["package", "--allow-dirty", "--no-verify"])
         .current_dir(crate_dir)
@@ -152,35 +232,89 @@ fn test_single_crate_isolated(crate_dir: &Path, raw_name: &str, patch_section: &
         None => bail!("No extracted directory found in sandbox"),
     };
 
-    // 3. Write .cargo/config.toml inside the sandbox to patch sibling crates
-    let cargo_config_dir = unpacked_dir.join(".cargo");
-    fs::create_dir_all(&cargo_config_dir)?;
-    fs::write(cargo_config_dir.join("config.toml"), patch_section)?;
+    if run_check {
+        // 3. Write .cargo/config.toml inside the sandbox so it resolves
+        // external and (already-vendored) internal sibling deps the same
+        // way the packaging step did.
+        write_source_replace_config(&unpacked_dir.join(".cargo").join("config.toml"), vendor_dir)?;
 
-    // 4. Run `cargo check` in the unpacked directory
-    // Crates like `util` depend on Zed forks of external crates (such as `smol`),
-    // whose APIs differ from upstream crates.io releases. In publish.rs, these crates
-    // are published with `--no-verify`. For isolated testing, packaging is verified,
-    // but compilation is skipped for crates relying on Zed-forked dependencies.
-    let manifest = fs::read_to_string(unpacked_dir.join("Cargo.toml")).unwrap_or_default();
-    if manifest.contains("# git dep replaced") || raw_name == "util" {
-        return Ok(());
+        // 4. Run `cargo check` in the unpacked directory.
+        // Crates like `util` depend on Zed forks of external crates (such as `smol`),
+        // whose APIs differ from upstream crates.io releases. In publish.rs, these crates
+        // are published with `--no-verify`. For isolated testing, packaging is verified,
+        // but compilation is skipped for crates relying on Zed-forked dependencies.
+        let manifest = fs::read_to_string(unpacked_dir.join("Cargo.toml")).unwrap_or_default();
+        if !(manifest.contains("# git dep replaced") || raw_name == "util") {
+            let mut check_cmd = Command::new("cargo");
+            check_cmd.arg("check");
+            if cfg!(target_os = "linux") && (raw_name == "gpui" || raw_name == "gpui_linux") {
+                check_cmd.args(["--features", "wayland,x11"]);
+            }
+
+            let check_output = check_cmd
+                .current_dir(&unpacked_dir)
+                .output()
+                .context("Failed to execute cargo check in sandbox")?;
+
+            if !check_output.status.success() {
+                let stderr = String::from_utf8_lossy(&check_output.stderr);
+                bail!("cargo check failed in isolated package sandbox:\n{stderr}");
+            }
+        }
     }
 
-    let mut check_cmd = Command::new("cargo");
-    check_cmd.arg("check");
-    if cfg!(target_os = "linux") && (raw_name == "gpui" || raw_name == "gpui_linux") {
-        check_cmd.args(["--features", "wayland,x11"]);
+    // 5. Add this crate's packaged output to the shared vendor directory so
+    // crates later in `CRATE_PUBLISH_ORDER` can resolve it as a dependency.
+    add_to_vendor_dir(&unpacked_dir, u_name, vendor_dir)?;
+
+    Ok(())
+}
+
+/// Copy a packaged crate's extracted contents into the vendor directory as a
+/// `<name>-<version>/` directory source entry. `.cargo-checksum.json` with
+/// empty checksums is accepted by Cargo's directory-source loader and skips
+/// file-level verification, which is fine here since the contents are
+/// produced by our own trusted `cargo package` step immediately prior.
+fn add_to_vendor_dir(unpacked_dir: &Path, u_name: &str, vendor_dir: &Path) -> Result<()> {
+    let manifest = fs::read_to_string(unpacked_dir.join("Cargo.toml"))
+        .context("Failed to read packaged Cargo.toml")?;
+    let doc: DocumentMut = manifest
+        .parse()
+        .context("Failed to parse packaged Cargo.toml")?;
+    let version = doc["package"]["version"]
+        .as_str()
+        .context("Packaged Cargo.toml has no package.version")?
+        .to_string();
+
+    let dest = vendor_dir.join(format!("{u_name}-{version}"));
+    if dest.exists() {
+        fs::remove_dir_all(&dest)?;
     }
+    copy_dir_recursive(unpacked_dir, &dest)?;
+    fs::write(dest.join(".cargo-checksum.json"), r#"{"files":{},"package":""}"#)?;
 
-    let check_output = check_cmd
-        .current_dir(&unpacked_dir)
-        .output()
-        .context("Failed to execute cargo check in sandbox")?;
+    Ok(())
+}
 
-    if !check_output.status.success() {
-        let stderr = String::from_utf8_lossy(&check_output.stderr);
-        bail!("cargo check failed in isolated package sandbox:\n{stderr}");
+fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<()> {
+    fs::create_dir_all(dest)?;
+
+    for entry in WalkDir::new(src) {
+        let entry = entry?;
+        let relative = entry.path().strip_prefix(src)?;
+        if relative.as_os_str().is_empty() {
+            continue;
+        }
+        let target = dest.join(relative);
+
+        if entry.file_type().is_dir() {
+            fs::create_dir_all(&target)?;
+        } else {
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::copy(entry.path(), &target)?;
+        }
     }
 
     Ok(())
