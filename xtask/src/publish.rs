@@ -79,9 +79,21 @@ fn patch_git_deps_for_publish(crate_dir: &Path) -> Result<()> {
     // Strip dev-dependencies on internal crates — they create circular publish
     // ordering issues (e.g. gpui-macros dev-depends on gpui, but gpui depends on
     // gpui-macros). Dev-deps aren't needed by consumers of the published crate.
-    strip_internal_dev_deps(&mut doc, "dev-dependencies");
+    strip_internal_dev_deps_everywhere(&mut doc);
 
-    // Also strip target-specific dev-dependencies on internal crates
+    fs::write(&cargo_toml_path, doc.to_string())?;
+    Ok(())
+}
+
+/// Strip dev-dependencies that reference internal (workspace) crates,
+/// both at the top level and under any `[target.'cfg(...)'.dev-dependencies]`
+/// table. Internal dev-deps create circular ordering issues (e.g. `gpui`
+/// dev-depends on `gpui_platform`, which depends on `gpui`), and dev-deps
+/// aren't needed by consumers of the published/packaged crate, so they can
+/// simply be dropped.
+fn strip_internal_dev_deps_everywhere(doc: &mut DocumentMut) {
+    strip_internal_dev_deps(doc, "dev-dependencies");
+
     let target_names: Vec<String> = doc
         .get("target")
         .and_then(|t| t.as_table_like())
@@ -111,6 +123,19 @@ fn patch_git_deps_for_publish(crate_dir: &Path) -> Result<()> {
             }
         }
     }
+}
+
+/// Strip dev-dependencies on internal (workspace) crates from a crate's
+/// Cargo.toml on disk. Used before `cargo package` in isolated-packaging
+/// tests, where an internal dev-dependency on a crate that hasn't been
+/// vendored yet (because it's later in `CRATE_PUBLISH_ORDER`, or because it
+/// depends on this very crate) would otherwise make packaging fail.
+pub(crate) fn strip_internal_dev_deps_for_packaging(crate_dir: &Path) -> Result<()> {
+    let cargo_toml_path = crate_dir.join("Cargo.toml");
+    let content = fs::read_to_string(&cargo_toml_path)?;
+    let mut doc: DocumentMut = content.parse()?;
+
+    strip_internal_dev_deps_everywhere(&mut doc);
 
     fs::write(&cargo_toml_path, doc.to_string())?;
     Ok(())

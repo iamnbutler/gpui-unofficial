@@ -7,6 +7,7 @@ use tempfile::tempdir;
 use toml_edit::DocumentMut;
 use walkdir::WalkDir;
 
+use crate::publish::strip_internal_dev_deps_for_packaging;
 use crate::transform::{crate_name_from_path, unofficial_name, CRATE_PUBLISH_ORDER};
 
 pub fn run(crates_dir: &str, target_crate: Option<&str>) -> Result<()> {
@@ -277,7 +278,17 @@ fn package_and_vendor(
     run_check: bool,
     vendor_dir: &Path,
 ) -> Result<()> {
-    // 1. Run `cargo package --allow-dirty --no-verify` inside the crate dir.
+    // 1. Strip dev-dependencies on internal (workspace) crates before
+    // packaging. `cargo package`'s lockfile-resolution phase resolves a
+    // crate's `[dev-dependencies]` too, even with `--no-verify`, and some
+    // internal dev-deps (e.g. `gpui` dev-depends on `gpui_platform`, which
+    // itself depends on `gpui`) reference siblings that either come later in
+    // `CRATE_PUBLISH_ORDER` (not yet vendored) or form an outright cycle —
+    // either way, that resolution fails since dev-deps aren't consumer-facing
+    // and aren't needed here.
+    strip_internal_dev_deps_for_packaging(crate_dir)?;
+
+    // 2. Run `cargo package --allow-dirty --no-verify` inside the crate dir.
     // Cargo's config search walks up from `crate_dir` through its ancestors,
     // so this picks up the `[source] replace-with` config written at the
     // shared `crates_path` level without needing a copy per crate.
@@ -311,7 +322,7 @@ fn package_and_vendor(
         None => bail!("Could not find .crate file in {}", package_dir.display()),
     };
 
-    // 2. Create an isolated sandbox temporary directory
+    // 3. Create an isolated sandbox temporary directory
     let sandbox = tempdir().context("Failed to create temporary directory")?;
     let sandbox_path = sandbox.path();
 
@@ -341,12 +352,12 @@ fn package_and_vendor(
     };
 
     if run_check {
-        // 3. Write .cargo/config.toml inside the sandbox so it resolves
+        // 4. Write .cargo/config.toml inside the sandbox so it resolves
         // external and (already-vendored) internal sibling deps the same
         // way the packaging step did.
         write_source_replace_config(&unpacked_dir.join(".cargo").join("config.toml"), vendor_dir)?;
 
-        // 4. Run `cargo check` in the unpacked directory.
+        // 5. Run `cargo check` in the unpacked directory.
         // Crates like `util` depend on Zed forks of external crates (such as `smol`),
         // whose APIs differ from upstream crates.io releases. In publish.rs, these crates
         // are published with `--no-verify`. For isolated testing, packaging is verified,
@@ -371,7 +382,7 @@ fn package_and_vendor(
         }
     }
 
-    // 5. Add this crate's packaged output to the shared vendor directory so
+    // 6. Add this crate's packaged output to the shared vendor directory so
     // crates later in `CRATE_PUBLISH_ORDER` can resolve it as a dependency.
     add_to_vendor_dir(&unpacked_dir, u_name, vendor_dir)?;
 
