@@ -10,8 +10,7 @@ use walkdir::WalkDir;
 use crate::transform::{crate_name_from_path, unofficial_name, CRATE_PUBLISH_ORDER};
 
 pub fn run(crates_dir: &str, target_crate: Option<&str>) -> Result<()> {
-    let crates_path = PathBuf::from(crates_dir)
-        .canonicalize()
+    let crates_path = canonicalize_no_verbatim(&PathBuf::from(crates_dir))
         .with_context(|| format!("Failed to canonicalize crates dir: {crates_dir}"))?;
 
     // Every crate transform.rs actually produced on disk, in topological
@@ -90,6 +89,27 @@ pub fn run(crates_dir: &str, target_crate: Option<&str>) -> Result<()> {
 
     println!("\nAll tested crates successfully built in isolated sandboxes!");
     Ok(())
+}
+
+/// `Path::canonicalize` on Windows returns extended-length `\\?\`-prefixed
+/// paths. `build_external_vendor_dir` stringifies crate dirs with `/`
+/// separators for the aggregator manifest's path dependencies, which turns
+/// that prefix into `//?/D:/...` — a form Cargo's manifest parser rejects as
+/// an "invalid path url". Stripping the prefix after resolving symlinks keeps
+/// the path absolute and canonical without tripping that parser.
+fn canonicalize_no_verbatim(path: &Path) -> std::io::Result<PathBuf> {
+    let canonical = path.canonicalize()?;
+    #[cfg(windows)]
+    {
+        let s = canonical.to_string_lossy();
+        if let Some(stripped) = s.strip_prefix(r"\\?\UNC\") {
+            return Ok(PathBuf::from(format!(r"\\{stripped}")));
+        }
+        if let Some(stripped) = s.strip_prefix(r"\\?\") {
+            return Ok(PathBuf::from(stripped));
+        }
+    }
+    Ok(canonical)
 }
 
 fn is_supported_on_current_host(raw_name: &str) -> bool {

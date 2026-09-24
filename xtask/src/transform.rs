@@ -356,6 +356,17 @@ fn transform_cargo_toml(
         }
     }
 
+    // Remove inspector feature from gpui_macros and gpui. Must run before
+    // `transform_dependencies` below: that pass rewrites the internal `gpui`
+    // dev-dependency's `features = ["inspector"]` array (stripping the sole
+    // "inspector" entry down to an empty, then-omitted array) before this
+    // function's own `features == ["inspector"]` detection ever sees it,
+    // which would silently leave the whole dependency in place and recreate
+    // the gpui_macros -> gpui isolated-packaging cycle it's meant to remove.
+    if original_name == "gpui_macros" || original_name == "gpui" {
+        remove_inspector_feature(&mut doc);
+    }
+
     // Transform dependencies, collecting any optional deps that get removed (git-only, no crates.io equiv)
     let mut removed_optionals: Vec<String> = Vec::new();
     transform_dependencies(&mut doc, "dependencies", workspace_deps, &version, output_dir, use_local_deps, &mut removed_optionals)?;
@@ -392,11 +403,6 @@ fn transform_cargo_toml(
     // Clean up [features] entries that referenced removed optional deps
     for dep_name in &removed_optionals {
         remove_dep_from_features(&mut doc, dep_name);
-    }
-
-    // Remove inspector feature from gpui_macros and gpui
-    if original_name == "gpui_macros" || original_name == "gpui" {
-        remove_inspector_feature(&mut doc);
     }
 
     // Add proptest dependency to crates that need it for tests
@@ -1957,6 +1963,48 @@ gpui = { workspace = true, features = ["inspector"] }
         assert!(
             doc["dev-dependencies"].get("gpui").is_none(),
             "inspector-only dev-dependency must be removed, got:\n{doc}"
+        );
+    }
+
+    /// Regression test for the full `transform_cargo_toml` pipeline: calling
+    /// `remove_inspector_feature` after `transform_dependencies` (the previous
+    /// order) let the internal-crate dependency branch strip the sole
+    /// `"inspector"` entry down to an empty, then-omitted `features` array
+    /// before `remove_inspector_feature` ever saw it — leaving a plain-looking
+    /// `gpui-unofficial` dev-dependency behind and recreating the
+    /// gpui_macros -> gpui isolated-packaging cycle. `remove_inspector_feature`
+    /// must run first, while the raw `features = ["inspector"]` marker is
+    /// still intact.
+    #[test]
+    fn inspector_dev_dependency_fully_removed_through_full_transform() {
+        let dir = tempfile::tempdir().unwrap();
+        let crate_dir = dir.path().join("gpui_macros");
+        fs::create_dir_all(&crate_dir).unwrap();
+        fs::write(
+            crate_dir.join("Cargo.toml"),
+            r#"[package]
+name = "gpui_macros"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+inspector = []
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["inspector"] }
+"#,
+        )
+        .unwrap();
+
+        let workspace_deps: HashMap<String, Item> = HashMap::new();
+        transform_cargo_toml(&crate_dir, dir.path(), "gpui_macros", &workspace_deps, "v1.21.0", true).unwrap();
+
+        let out = fs::read_to_string(crate_dir.join("Cargo.toml")).unwrap();
+        let doc: DocumentMut = out.parse().unwrap();
+
+        assert!(
+            doc.get("dev-dependencies").is_none_or(|d| d.get("gpui").is_none()),
+            "inspector-only dev-dependency on gpui must not survive the full transform, got:\n{out}"
         );
     }
 }
