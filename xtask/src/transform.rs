@@ -327,6 +327,7 @@ fn transform_cargo_toml(
 
     // For gpui, set lib name to "gpui" so users can `use gpui::...`
     // even though the package is named "gpui-unofficial"
+    let mut gpui_platform_local_patch = false;
     if original_name == "gpui" {
         // Update existing [lib] section or create new one
         if let Some(lib) = doc.get_mut("lib") {
@@ -348,6 +349,7 @@ fn transform_cargo_toml(
                 if use_local_deps {
                     dep.insert("path", "../gpui-platform-gpui-unofficial".into());
                     dep.insert("version", version.clone().into());
+                    gpui_platform_local_patch = true;
                 } else {
                     dep.insert("version", version.clone().into());
                 }
@@ -358,9 +360,13 @@ fn transform_cargo_toml(
 
     // Transform dependencies, collecting any optional deps that get removed (git-only, no crates.io equiv)
     let mut removed_optionals: Vec<String> = Vec::new();
-    transform_dependencies(&mut doc, "dependencies", workspace_deps, &version, output_dir, use_local_deps, &mut removed_optionals)?;
-    transform_dependencies(&mut doc, "dev-dependencies", workspace_deps, &version, output_dir, use_local_deps, &mut removed_optionals)?;
-    transform_dependencies(&mut doc, "build-dependencies", workspace_deps, &version, output_dir, use_local_deps, &mut removed_optionals)?;
+    let mut local_patches: Vec<String> = Vec::new();
+    if gpui_platform_local_patch {
+        local_patches.push("gpui-platform-gpui-unofficial".to_string());
+    }
+    transform_dependencies(&mut doc, "dependencies", workspace_deps, &version, output_dir, use_local_deps, &mut removed_optionals, &mut local_patches)?;
+    transform_dependencies(&mut doc, "dev-dependencies", workspace_deps, &version, output_dir, use_local_deps, &mut removed_optionals, &mut local_patches)?;
+    transform_dependencies(&mut doc, "build-dependencies", workspace_deps, &version, output_dir, use_local_deps, &mut removed_optionals, &mut local_patches)?;
 
     // Handle target-specific dependencies
     if let Some(target) = doc.get_mut("target") {
@@ -376,7 +382,7 @@ fn transform_cargo_toml(
                                 let mut temp_doc = DocumentMut::new();
                                 if let Some(deps) = table.get(dep_section).cloned() {
                                     temp_doc.insert(dep_section, deps);
-                                    transform_dependencies(&mut temp_doc, dep_section, workspace_deps, &version, output_dir, use_local_deps, &mut removed_optionals)?;
+                                    transform_dependencies(&mut temp_doc, dep_section, workspace_deps, &version, output_dir, use_local_deps, &mut removed_optionals, &mut local_patches)?;
                                     if let Some(new_deps) = temp_doc.get(dep_section).cloned() {
                                         table.insert(dep_section, new_deps);
                                     }
@@ -410,6 +416,26 @@ fn transform_cargo_toml(
     // Add custom cfg lints for crates that need them
     add_custom_cfg_lints(&mut doc, original_name);
 
+    // Each transformed crate is its own workspace root (see below), so `cargo
+    // package` resolves its path+version internal deps against the *real*
+    // crates.io index to build the packaged Cargo.lock. Pre-publish, this
+    // release's version isn't there yet, so `cargo package` (used by
+    // `test-isolated` to verify local-deps builds) fails with "failed to
+    // select a version". Patching those deps back to their sibling paths
+    // lets that resolution succeed without requiring a prior publish.
+    if use_local_deps && !local_patches.is_empty() {
+        let mut patch_table = toml_edit::Table::new();
+        patch_table.set_implicit(true);
+        let mut crates_io_table = toml_edit::Table::new();
+        for unofficial in &local_patches {
+            let mut entry = toml_edit::InlineTable::new();
+            entry.insert("path", format!("../{unofficial}").into());
+            crates_io_table.insert(unofficial, Item::Value(Value::InlineTable(entry)));
+        }
+        patch_table.insert("crates-io", Item::Table(crates_io_table));
+        doc.insert("patch", Item::Table(patch_table));
+    }
+
     // Add empty [workspace] to make crate independent
     doc.insert("workspace", Item::Table(toml_edit::Table::new()));
 
@@ -439,6 +465,7 @@ fn transform_dependencies(
     _output_dir: &Path,
     use_local_deps: bool,
     removed_optionals: &mut Vec<String>,
+    local_patches: &mut Vec<String>,
 ) -> Result<()> {
     let Some(deps) = doc.get_mut(section) else {
         return Ok(());
@@ -476,6 +503,13 @@ fn transform_dependencies(
                         let relative_path = format!("../{unofficial}");
                         new_dep.insert("path", relative_path.into());
                         new_dep.insert("version", version.into());
+                        // `cargo package` resolves the packaged (path-stripped) manifest
+                        // against the real crates.io index, which doesn't have this
+                        // release's version yet. Track it so a [patch.crates-io] entry
+                        // can redirect that resolution back to the local sibling.
+                        if !local_patches.contains(&unofficial) {
+                            local_patches.push(unofficial.clone());
+                        }
                     } else {
                         // Use version for publishing
                         new_dep.insert("version", version.into());
@@ -1845,5 +1879,65 @@ test-support = ["collections/test-support", "rand"]
                 "vendored file {file} must exist in gpui/src/"
             );
         }
+    }
+
+    /// `cargo package` resolves a dep's packaged (path-stripped) manifest
+    /// against the real crates.io index to generate its Cargo.lock — even
+    /// with `--no-verify`. Pre-publish, this release's version isn't on the
+    /// index yet, so any internal dep gets "failed to select a version" and
+    /// `test-isolated` fails on every crate with a sibling dependency. A
+    /// `[patch.crates-io]` entry redirects that resolution to the sibling's
+    /// local path instead, so it succeeds without requiring a prior publish.
+    #[test]
+    fn local_deps_patch_internal_siblings_for_cargo_package() {
+        let dir = tempfile::tempdir().unwrap();
+        let crate_dir = dir.path().join("collections");
+        fs::create_dir_all(&crate_dir).unwrap();
+        fs::write(
+            crate_dir.join("Cargo.toml"),
+            r#"[package]
+name = "collections"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+gpui_util = { workspace = true }
+"#,
+        )
+        .unwrap();
+
+        let workspace_deps: HashMap<String, Item> = HashMap::new();
+        transform_cargo_toml(&crate_dir, dir.path(), "collections", &workspace_deps, "v1.21.0", true).unwrap();
+
+        let out = fs::read_to_string(crate_dir.join("Cargo.toml")).unwrap();
+        let doc: DocumentMut = out.parse().unwrap();
+
+        assert_eq!(
+            doc["patch"]["crates-io"]["gpui-util-gpui-unofficial"]["path"].as_str(),
+            Some("../gpui-util-gpui-unofficial"),
+            "internal sibling dep must be patched to its local path, got:\n{out}"
+        );
+
+        // The version-deps pass (real publish, not local verification) must
+        // never emit a patch section — it would leak into the published tarball's
+        // intent and is meaningless once every crate is actually on crates.io.
+        fs::write(
+            crate_dir.join("Cargo.toml"),
+            r#"[package]
+name = "collections"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+gpui_util = { workspace = true }
+"#,
+        )
+        .unwrap();
+        transform_cargo_toml(&crate_dir, dir.path(), "collections", &workspace_deps, "v1.21.0", false).unwrap();
+        let out = fs::read_to_string(crate_dir.join("Cargo.toml")).unwrap();
+        assert!(
+            !out.contains("[patch"),
+            "version-deps transform must not add a patch section, got:\n{out}"
+        );
     }
 }
