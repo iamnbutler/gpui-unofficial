@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -116,6 +117,7 @@ fn build_external_vendor_dir(all_crates: &[(String, PathBuf, &str)], vendor_dir:
     let mut manifest = String::from(
         "[package]\nname = \"vendor-aggregator\"\nversion = \"0.0.0\"\nedition = \"2021\"\npublish = false\n\n[dependencies]\n",
     );
+    let mut extra_dev_deps: BTreeMap<String, String> = BTreeMap::new();
     for (u_name, dir, raw_name) in all_crates {
         let path_str = dir.to_string_lossy().replace('\\', "/");
         // Match the extra features `package_and_vendor`'s `cargo check` step
@@ -127,7 +129,20 @@ fn build_external_vendor_dir(all_crates: &[(String, PathBuf, &str)], vendor_dir:
         } else {
             manifest.push_str(&format!("{u_name} = {{ path = {path_str:?} }}\n"));
         }
+
+        collect_external_dev_dependencies(dir, &mut extra_dev_deps)?;
     }
+
+    // `cargo package`'s lockfile-resolution phase for each crate (run per
+    // crate below) also resolves that crate's own `[dev-dependencies]`, even
+    // with `--no-verify`. But `cargo vendor` only pulls in dev-dependencies
+    // of workspace *members* — a plain path dependency's dev-dependencies
+    // (like these) are never reached, so add them here as ordinary
+    // dependencies of the aggregator so they still land in the vendor dir.
+    for (name, req) in &extra_dev_deps {
+        manifest.push_str(&format!("{name} = {req}\n"));
+    }
+
     manifest.push_str("\n[workspace]\n");
     fs::write(aggregator_path.join("Cargo.toml"), manifest)?;
 
@@ -143,6 +158,48 @@ fn build_external_vendor_dir(all_crates: &[(String, PathBuf, &str)], vendor_dir:
             "cargo vendor failed while collecting external dependencies:\n{}",
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+
+    Ok(())
+}
+
+/// Collect every non-path `[dev-dependencies]` entry declared by the crate at
+/// `dir` (including target-gated tables like
+/// `[target.'cfg(...)'.dev-dependencies]`), so `build_external_vendor_dir`
+/// can vendor them too. Entries already present in `out` are left as-is.
+fn collect_external_dev_dependencies(dir: &Path, out: &mut BTreeMap<String, String>) -> Result<()> {
+    let manifest_path = dir.join("Cargo.toml");
+    let Ok(content) = fs::read_to_string(&manifest_path) else {
+        return Ok(());
+    };
+    let doc: DocumentMut = content
+        .parse()
+        .with_context(|| format!("Failed to parse {}", manifest_path.display()))?;
+
+    let mut dev_dep_tables = Vec::new();
+    if let Some(item) = doc.get("dev-dependencies") {
+        dev_dep_tables.push(item);
+    }
+    if let Some(target) = doc.get("target").and_then(|t| t.as_table_like()) {
+        for (_, cfg_item) in target.iter() {
+            if let Some(dev_deps) = cfg_item.get("dev-dependencies") {
+                dev_dep_tables.push(dev_deps);
+            }
+        }
+    }
+
+    for table_item in dev_dep_tables {
+        let Some(table) = table_item.as_table_like() else {
+            continue;
+        };
+        for (name, value) in table.iter() {
+            let is_path_dep = value.as_table_like().is_some_and(|t| t.get("path").is_some());
+            if is_path_dep {
+                continue;
+            }
+            out.entry(name.to_string())
+                .or_insert_with(|| value.to_string().trim().to_string());
+        }
     }
 
     Ok(())
@@ -318,4 +375,40 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn collects_plain_and_targeted_external_dev_deps_but_skips_path_deps() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("Cargo.toml"),
+            r#"
+[package]
+name = "foo"
+version = "1.0.0"
+
+[dependencies]
+bar = { path = "../bar", version = "1.0.0" }
+
+[dev-dependencies]
+pretty_assertions = "1.4.1"
+sibling-gpui-unofficial = { path = "../sibling", version = "1.0.0" }
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+proptest = { version = "1.5", features = ["std"] }
+"#,
+        )
+        .unwrap();
+
+        let mut out = BTreeMap::new();
+        collect_external_dev_dependencies(dir.path(), &mut out).unwrap();
+
+        assert_eq!(out.get("pretty_assertions").map(String::as_str), Some("\"1.4.1\""));
+        assert!(out.get("proptest").unwrap().contains("1.5"));
+        assert!(!out.contains_key("sibling-gpui-unofficial"));
+    }
 }
