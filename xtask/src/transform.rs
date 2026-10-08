@@ -426,8 +426,90 @@ fn transform_cargo_toml(
     // Add empty [workspace] to make crate independent
     doc.insert("workspace", Item::Table(toml_edit::Table::new()));
 
+    // Ensure serde's `derive` feature is present when the crate's source
+    // actually uses `#[derive(Serialize)]` / `#[derive(Deserialize)]`.
+    //
+    // zed's root Cargo.toml declares `serde = { version = "1.0", features =
+    // ["rc"] }` with no `derive`. Inside the full zed workspace this is fine:
+    // Cargo's feature unification activates `derive` anyway because other
+    // crates built alongside (e.g. `client`) request it for the same `serde`
+    // instance. `http_client`'s own Cargo.toml never asks for `derive`
+    // itself, so once it's extracted and built standalone that implicit
+    // feature disappears and `#[derive(Deserialize)]` in src/github.rs fails
+    // with "cannot find derive macro `Deserialize` in this scope".
+    ensure_serde_derive_feature(&mut doc, crate_dir)?;
+
     // Write back
     fs::write(&cargo_toml_path, doc.to_string())?;
+
+    Ok(())
+}
+
+/// Scan a crate's source tree for `#[derive(..Serialize..)]` /
+/// `#[derive(..Deserialize..)]` and make sure its `serde` dependency (if any)
+/// requests the `derive` feature. See the call site above for why this is
+/// needed despite upstream not declaring it explicitly.
+fn ensure_serde_derive_feature(doc: &mut DocumentMut, crate_dir: &Path) -> Result<()> {
+    let Some(deps) = doc.get_mut("dependencies") else {
+        return Ok(());
+    };
+    let Some(deps_table) = deps.as_table_like_mut() else {
+        return Ok(());
+    };
+    let Some(serde_dep) = deps_table.get_mut("serde") else {
+        return Ok(());
+    };
+
+    let already_has_derive = serde_dep
+        .as_table_like()
+        .and_then(|t| t.get("features"))
+        .and_then(|f| f.as_array())
+        .is_some_and(|arr| arr.iter().any(|v| v.as_str() == Some("derive")));
+    if already_has_derive {
+        return Ok(());
+    }
+
+    static DERIVE_RE: OnceLock<Regex> = OnceLock::new();
+    let re = DERIVE_RE.get_or_init(|| {
+        Regex::new(r"derive\s*\([^)]*\b(Serialize|Deserialize)\b").unwrap()
+    });
+
+    let uses_serde_derive = WalkDir::new(crate_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("rs"))
+        .any(|e| {
+            fs::read_to_string(e.path())
+                .map(|content| re.is_match(&content))
+                .unwrap_or(false)
+        });
+
+    if !uses_serde_derive {
+        return Ok(());
+    }
+
+    match serde_dep {
+        Item::Value(Value::InlineTable(table)) => {
+            let mut feat_arr = toml_edit::Array::new();
+            if let Some(Value::Array(existing)) = table.get("features") {
+                for f in existing.iter() {
+                    feat_arr.push(f.clone());
+                }
+            }
+            feat_arr.push("derive");
+            table.insert("features", Value::Array(feat_arr));
+        }
+        Item::Value(Value::String(version)) => {
+            let version = version.value().clone();
+            let mut table = toml_edit::InlineTable::new();
+            table.insert("version", version.as_str().into());
+            let mut feat_arr = toml_edit::Array::new();
+            feat_arr.push("derive");
+            table.insert("features", Value::Array(feat_arr));
+            *serde_dep = Item::Value(Value::InlineTable(table));
+        }
+        _ => {}
+    }
 
     Ok(())
 }
@@ -2097,6 +2179,85 @@ chrono = { workspace = true, default-features = true }
             doc["dependencies"]["chrono"]["default-features"].as_bool(),
             Some(true),
             "crate-level `default-features = true` override must survive, got:\n{out}"
+        );
+    }
+
+    /// zed's root Cargo.toml declares `serde = { version = "1.0", features =
+    /// ["rc"] }` with no `derive`, and `crates/http_client/Cargo.toml` never
+    /// overrides that. Inside the full zed workspace this is harmless —
+    /// Cargo's feature unification activates `derive` anyway because other
+    /// workspace members request it for the same `serde` instance. Once
+    /// `http_client` is extracted and built standalone that implicit feature
+    /// disappears, so a source file using `#[derive(Deserialize)]` fails to
+    /// compile. The transform must detect this and add `derive` itself.
+    #[test]
+    fn serde_derive_feature_is_added_when_source_uses_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let zed_dir = dir.path().join("zed");
+        fs::create_dir_all(&zed_dir).unwrap();
+        fs::write(
+            zed_dir.join("Cargo.toml"),
+            r#"[workspace]
+members = []
+
+[workspace.dependencies]
+serde = { version = "1.0", features = ["rc"] }
+"#,
+        )
+        .unwrap();
+        let workspace_deps = parse_workspace_deps(&zed_dir).unwrap();
+
+        let crate_dir = dir.path().join("http_client");
+        fs::create_dir_all(crate_dir.join("src")).unwrap();
+        fs::write(
+            crate_dir.join("Cargo.toml"),
+            r#"[package]
+name = "http_client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { workspace = true }
+"#,
+        )
+        .unwrap();
+        fs::write(
+            crate_dir.join("src/github.rs"),
+            r#"use serde::Deserialize;
+
+#[derive(Deserialize, Debug)]
+struct GithubRelease {
+    prerelease: bool,
+}
+"#,
+        )
+        .unwrap();
+
+        transform_cargo_toml(
+            &crate_dir,
+            dir.path(),
+            "http_client",
+            &workspace_deps,
+            "v1.21.0",
+            false,
+        )
+        .unwrap();
+
+        let out = fs::read_to_string(crate_dir.join("Cargo.toml")).unwrap();
+        let doc: DocumentMut = out.parse().unwrap();
+        let features: Vec<&str> = doc["dependencies"]["serde"]["features"]
+            .as_array()
+            .unwrap_or_else(|| panic!("serde must have a features array, got:\n{out}"))
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert!(
+            features.contains(&"derive"),
+            "expected serde/derive to be added since source uses #[derive(Deserialize)], got {features:?} from:\n{out}"
+        );
+        assert!(
+            features.contains(&"rc"),
+            "existing workspace-level feature `rc` must be preserved, got {features:?} from:\n{out}"
         );
     }
 
