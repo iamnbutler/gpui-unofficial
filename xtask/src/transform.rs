@@ -680,6 +680,20 @@ fn resolve_workspace_dep(workspace_def: &Item, usage: &Item) -> Result<Option<It
                     result_table.insert("optional", Item::Value(Value::from(b)));
                 }
             }
+
+            // A crate's own `default-features` overrides the workspace-level
+            // value, it does not union with it. E.g. the workspace declares
+            // `chrono = { version = "0.4", default-features = false, features
+            // = ["std", "serde"] }` but `crates/gpui/Cargo.toml` opts back
+            // into `default-features = true` to get `chrono::Local` (gated
+            // behind chrono's default `clock` feature). Without this override
+            // gpui silently built with `default-features = false` and failed
+            // to compile.
+            if let Some(default_features) = usage_table.get("default-features") {
+                if let Some(b) = default_features.as_bool() {
+                    result_table.insert("default-features", Item::Value(Value::from(b)));
+                }
+            }
         }
     }
 
@@ -2032,6 +2046,58 @@ derive_more = { workspace = true, features = ["add", "mul"] }
                 "expected feature {expected:?} present in union, got {features:?} from:\n{out}"
             );
         }
+    }
+
+    /// Unlike `features` (unioned with the workspace base), a member crate's
+    /// `default-features` OVERRIDES the workspace-level value — it is not a
+    /// union. zed's root Cargo.toml declares `chrono = { version = "0.4",
+    /// default-features = false, features = ["std", "serde"] }` but
+    /// `crates/gpui/Cargo.toml` opts back into `default-features = true` to
+    /// pull in chrono's default `clock` feature (needed for `chrono::Local`).
+    /// If the transform dropped that override, gpui would build with
+    /// `default-features = false` and fail with "cannot find `Local` in
+    /// `chrono`".
+    #[test]
+    fn workspace_dep_default_features_override_is_honored() {
+        let dir = tempfile::tempdir().unwrap();
+        let zed_dir = dir.path().join("zed");
+        fs::create_dir_all(&zed_dir).unwrap();
+        fs::write(
+            zed_dir.join("Cargo.toml"),
+            r#"[workspace]
+members = []
+
+[workspace.dependencies]
+chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }
+"#,
+        )
+        .unwrap();
+        let workspace_deps = parse_workspace_deps(&zed_dir).unwrap();
+
+        let crate_dir = dir.path().join("gpui");
+        fs::create_dir_all(&crate_dir).unwrap();
+        fs::write(
+            crate_dir.join("Cargo.toml"),
+            r#"[package]
+name = "gpui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+chrono = { workspace = true, default-features = true }
+"#,
+        )
+        .unwrap();
+
+        transform_cargo_toml(&crate_dir, dir.path(), "gpui", &workspace_deps, "v1.21.0", false).unwrap();
+
+        let out = fs::read_to_string(crate_dir.join("Cargo.toml")).unwrap();
+        let doc: DocumentMut = out.parse().unwrap();
+        assert_eq!(
+            doc["dependencies"]["chrono"]["default-features"].as_bool(),
+            Some(true),
+            "crate-level `default-features = true` override must survive, got:\n{out}"
+        );
     }
 
     /// zed's gpui_macros declares its inspector-only `gpui` dependency under
