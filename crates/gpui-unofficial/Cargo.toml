@@ -1,0 +1,295 @@
+[package]
+name = "gpui-unofficial"
+version = "1.24.1-pre"
+edition = "2024"
+authors = ["Nathan Sobo <nathan@zed.dev>"]
+description = "Zed's GPU-accelerated UI framework"
+repository = "https://github.com/iamnbutler/gpui-unofficial"
+license = "Apache-2.0"
+homepage = "https://gpui.rs"
+readme = "README.md"
+keywords = ["desktop", "gui", "immediate"]
+categories = ["gui"]
+
+[features]
+default = ["font-kit", "wayland", "x11", "windows-manifest"]
+test-support = [
+    "collections/test-support",
+    "http_client/test-support",
+    "wayland",
+    "x11",
+    "dep:futures-concurrency",
+    "dep:postage",
+    "dep:web-time", "proptest"]
+bench-support = ["profiler", "dep:criterion"]
+# Preserve the published feature name while consumers migrate to `bench-support`.
+bench = ["bench-support"]
+# Tracks every entity handle so tests can assert nothing leaked. Also enabled
+# by setting `GPUI_LEAK_DETECTION` when building; see `build.rs`.
+leak-detection = []
+font-kit = []
+wayland = []
+x11 = [
+    "scap?/x11",
+]
+screen-capture = [
+    "scap",
+    "dep:objc2-core-foundation",
+    "dep:objc2-core-video",
+]
+windows-manifest = ["dep:embed-resource"]
+profiler = ["dep:hdrhistogram"]
+stacker = ["dep:stacksafe"]
+proptest = ["dep:proptest"]
+
+[lib]
+path = "src/gpui.rs"
+name = "gpui"
+
+[dependencies]
+accesskit = { version = "0.24.0", features = ["enumn"] }
+anyhow = { version = "1.0.86" }
+async-task = { version = "4.7" }
+backtrace = { version = "0.3" }
+bitflags = { version = "2.6.0" }
+collections = { package = "collections-gpui-unofficial", version = "1.24.1-pre" }
+criterion = { version = "0.8.2", features = ["html_reports"], optional = true }
+ctor = { version = "1.0.12" }
+derive_more = { version = "2.1", features = ["deref", "deref_mut", "from_str", "add", "add_assign", "mul", "mul_assign", "not"] }
+etagere = { version = "0.2" }
+futures = { version = "0.3.34" }
+futures-concurrency = { version = "7.7.1", optional = true }
+gpui_macros = { package = "gpui-macros-gpui-unofficial", version = "1.24.1-pre" }
+gpui_shared_string = { package = "gpui-shared-string-gpui-unofficial", version = "1.24.1-pre" }
+http_client = { package = "http-client-gpui-unofficial", version = "1.24.1-pre" }
+image = { version = "0.25.1", default-features = false, features = [
+    "bmp",
+    "dds",
+    "exr",
+    "ff",
+    "gif",
+    "hdr",
+    "ico",
+    "jpeg",
+    "png",
+    "pnm",
+    "qoi",
+    "rayon",
+    "tga",
+    "tiff",
+    "webp"] }
+inventory = { version = "0.3.19" }
+itertools = { version = "0.14.0" }
+log = { version = "0.4", default-features = false, features = ["std"] }
+num_cpus = "1.13"
+parking = "2.0.0"
+parking_lot = { version = "0.12.1" }
+postage = { version = "0.5", default-features = false, features = ["blocking"], optional = true }
+chrono = { version = "0.4", default-features = true, features = ["std", "serde"] }
+profiling = { version = "1" }
+rand = { version = "0.9", default-features = false, features = ["std", "std_rng", "os_rng", "small_rng", "thread_rng"] }
+raw-window-handle = { version = "0.6" }
+regex = { version = "1.5", default-features = true, features = ["std", "perf"] }
+refineable = { package = "refineable-gpui-unofficial", version = "1.24.1-pre" }
+scheduler = { package = "scheduler-gpui-unofficial", version = "1.24.1-pre" }
+resvg = { version = "0.46.0", default-features = false, features = [
+    "text",
+    "system-fonts",
+    "memmap-fonts",
+    "raster-images"] }
+usvg = { version = "0.46.0", default-features = false }
+ttf-parser = "0.25"
+schemars = { version = "1.0", default-features = false, features = ["std", "indexmap2", "derive"] }
+seahash = "4.1"
+serde = { version = "1.0", features = ["rc", "derive"] }
+serde_json = { version = "1.0.144", features = ["preserve_order", "raw_value"] }
+slotmap = { version = "1.0.6" }
+smallvec = { version = "1.6", features = ["union", "const_new"] }
+stacksafe = { version = "1.0", optional = true }
+strum = { version = "0.28", features = ["derive"] }
+sum_tree = { package = "sum-tree-gpui-unofficial", version = "1.24.1-pre" }
+taffy = { version = "=0.13.0", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "block_layout", "float_layout", "content_size"] }
+thiserror = { version = "2.0.12" }
+gpui_util = { package = "gpui-util-gpui-unofficial", version = "1.24.1-pre" }
+hdrhistogram = { version = "7", default-features = false, optional = true }
+waker-fn = "1.2.0"
+lyon = "1.0"
+pin-project = "1.1.10"
+spin = { version = "0.10", default-features = false, features = ["mutex", "spin_mutex", "lock_api"] }
+url = { version = "2.2" }
+uuid = { version = "1.1", features = ["serde", "v4"] }
+web-time = { version = "1.1.0", optional = true }
+heapless = { version = "0.9.2" }
+proptest = { version = "1", optional = true, features = ["attr-macro"] }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+async-channel = { version = "2.5", default-features = false }
+
+[target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dependencies]
+async-channel = { version = "2.5", default-features = false, features = ["std"] }
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+pollster = { version = "0.4.0" }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+getrandom = { version = "0.3.4", features = ["wasm_js"] }
+uuid = { version = "1.1", features = ["serde", "js"] }
+
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+core-video = { version = "0.5", default-features = false, features = ["link"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-core-foundation = { version = "=0.3.2", default-features = false, optional = true }
+objc2-core-video = { version = "=0.3.2", default-features = false, features = ["CVBuffer", "CVImageBuffer"], optional = true }
+log = { version = "0.4", default-features = false, features = ["std"] }
+objc2 = { version = "0.6", optional = true }
+objc2-metal = { version = "0.3", optional = true }
+
+[target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "windows"))'.dependencies]
+scap = { version = "0.0.8-zed", package = "zed-scap", default-features = false, optional = true }
+
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
+libc = { version = "0.2" }
+
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Ole", "Win32_System_Threading", "Win32_System_Variant", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_UI_Shell_PropertiesSystem", "Win32_UI_WindowsAndMessaging", "Win32_System_Power", "Win32_System_RemoteDesktop", "Win32_System_WindowsProgramming"] }
+
+
+[dev-dependencies]
+backtrace = { version = "0.3" }
+collections = { package = "collections-gpui-unofficial", version = "1.24.1-pre", features = ["test-support"] }
+env_logger = { version = "0.11" }
+futures-concurrency = { version = "7.7.1" }
+postage = { version = "0.5", default-features = false, features = ["blocking"] }
+web-time = { version = "1.1.0" }
+gpui_platform = { package = "gpui-platform-gpui-unofficial", version = "1.24.1-pre" }
+gpui_util = { package = "gpui-util-gpui-unofficial", version = "1.24.1-pre" }
+lyon = { version = "1.0", features = ["extra"] }
+rand = { version = "0.9", default-features = true, features = ["std", "std_rng", "os_rng"] }
+scheduler = { package = "scheduler-gpui-unofficial", version = "1.24.1-pre", features = ["test-support"] }
+unicode-segmentation = { version = "1.10" }
+util_macros = { package = "util-macros-gpui-unofficial", version = "1.24.1-pre" }
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+http_client = { package = "http-client-gpui-unofficial", version = "1.24.1-pre", features = ["test-support"] }
+reqwest_client = { package = "reqwest-client-gpui-unofficial", version = "1.24.1-pre", features = ["test-support"] }
+proptest = { version = "1", features = ["attr-macro"] }
+
+[target.'cfg(target_family = "wasm")'.dev-dependencies]
+wasm-bindgen = { version = "0.2.120" }
+web-sys = { version = "0.3" }
+
+[build-dependencies]
+embed-resource = { version = "3.0", optional = true }
+
+[package.metadata.cargo-shear]
+ignored = [
+    "getrandom",
+    "objc2",
+    "objc2-metal",
+]
+ignored-paths = ["src/_ownership_and_data_flow.rs"]
+
+[[example]]
+name = "hello_world"
+path = "examples/hello_world.rs"
+
+[[example]]
+name = "move_entity_between_windows"
+path = "examples/move_entity_between_windows.rs"
+
+[[example]]
+name = "image"
+path = "examples/image/image.rs"
+
+[[example]]
+name = "input"
+path = "examples/input.rs"
+
+[[example]]
+name = "on_window_close_quit"
+path = "examples/on_window_close_quit.rs"
+
+[[example]]
+name = "window_movable"
+path = "examples/window_movable.rs"
+
+[[example]]
+name = "opacity"
+path = "examples/opacity.rs"
+
+[[example]]
+name = "pattern"
+path = "examples/pattern.rs"
+
+[[example]]
+name = "set_menus"
+path = "examples/set_menus.rs"
+
+[[example]]
+name = "system_notifications"
+path = "examples/system_notifications.rs"
+
+
+[[example]]
+name = "shadow"
+path = "examples/shadow.rs"
+
+[[example]]
+name = "svg"
+path = "examples/svg/svg.rs"
+
+[[example]]
+name = "tab_stop"
+path = "examples/tab_stop.rs"
+
+[[example]]
+name = "text"
+path = "examples/text.rs"
+
+[[example]]
+name = "text_wrapper"
+path = "examples/text_wrapper.rs"
+
+[[example]]
+name = "tree"
+path = "examples/tree.rs"
+
+[[example]]
+name = "uniform_list"
+path = "examples/uniform_list.rs"
+
+[[example]]
+name = "window_shadow"
+path = "examples/window_shadow.rs"
+
+[[example]]
+name = "grid_layout"
+path = "examples/grid_layout.rs"
+
+[[example]]
+name = "list_example"
+path = "examples/list_example.rs"
+
+[[example]]
+name = "mouse_pressure"
+path = "examples/mouse_pressure.rs"
+
+[[example]]
+name = "a11y"
+path = "examples/a11y.rs"
+
+[[example]]
+name = "view_example"
+path = "examples/view_example/view_example_main.rs"
+
+[[example]]
+name = "toggle_headless"
+path = "examples/toggle_headless.rs"
+
+[lints]
+rust = { unexpected_cfgs = { level = "warn", check-cfg = ["cfg(rust_analyzer)"] } }
+
+[workspace]

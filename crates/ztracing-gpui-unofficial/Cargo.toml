@@ -1,0 +1,43 @@
+[package]
+name = "ztracing-gpui-unofficial"
+version = "1.24.1-pre"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/iamnbutler/gpui-unofficial"
+description = "Unofficial release of Zed's ztracing crate"
+
+[lib]
+doctest = false
+
+[features]
+tracing-tracy = ["dep:tracing-tracy", "dep:tracing-subscriber", "dep:zlog"]
+tracy = ["tracing-tracy", "tracy-client"]
+web = [
+    "dep:async-channel",
+    "dep:js-sys",
+    "dep:tracing-subscriber",
+    "dep:wasm-bindgen",
+    "dep:web-sys",
+    "dep:zlog",
+]
+
+[dependencies]
+zlog = { package = "zlog-gpui-unofficial", version = "1.24.1-pre", optional = true }
+tracing = { version = "0.1.40" }
+tracing-subscriber = { version = "0.3", optional = true }
+ztracing_macro = { package = "ztracing-macro-gpui-unofficial", version = "1.24.1-pre" }
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+tracing-tracy = { version = "0.11", optional = true, features = ["ondemand"] }
+tracy-client = { version = "0.18", optional = true, features = ["ondemand"] }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+async-channel = { version = "2.5", default-features = false, features = ["std"], optional = true }
+js-sys = { version = "0.3", optional = true }
+wasm-bindgen = { version = "0.2.120", optional = true }
+web-sys = { version = "0.3", features = ["console", "Performance"], optional = true }
+
+[lints]
+rust = { unexpected_cfgs = { level = "warn", check-cfg = ["cfg(ztracing)", "cfg(ztracing_with_memory)"] } }
+
+[workspace]

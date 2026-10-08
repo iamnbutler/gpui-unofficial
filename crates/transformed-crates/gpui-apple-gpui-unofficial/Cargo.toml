@@ -1,0 +1,69 @@
+[package]
+name = "gpui-apple-gpui-unofficial"
+version = "1.24.1-pre"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/iamnbutler/gpui-unofficial"
+description = "Unofficial release of Zed's gpui_apple crate"
+include = ["src/**/*", "build.rs", "gpui/**/*", "Cargo.toml", "LICENSE*"]
+
+[lib]
+path = "src/gpui_apple.rs"
+doctest = false
+
+[features]
+default = []
+bench-support = ["gpui/bench-support"]
+test-support = ["gpui/test-support"]
+runtime_shaders = []
+
+[dependencies]
+gpui = { package = "gpui-unofficial", version = "1.24.1-pre" }
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+anyhow = { version = "1.0.86" }
+async-task = { version = "4.7" }
+block2 = { version = "0.6" }
+core-foundation = { version = "0.10" }
+core-graphics = { version = "0.24" }
+core-video = { version = "0.5", default-features = false, features = ["link", "metal"] }
+derive_more = { version = "2.1", features = ["deref", "deref_mut", "from_str"] }
+dispatch2 = { version = "0.3", default-features = false, features = ["std"] }
+etagere = { version = "0.2" }
+foreign-types = { version = "0.5" }
+gpui_util = { package = "gpui-util-gpui-unofficial", version = "1.24.1-pre" }
+image = { version = "0.25.1", default-features = false, features = [
+    "bmp",
+    "dds",
+    "exr",
+    "ff",
+    "gif",
+    "hdr",
+    "ico",
+    "jpeg",
+    "png",
+    "pnm",
+    "qoi",
+    "rayon",
+    "tga",
+    "tiff",
+    "webp"] }
+libc = { version = "0.2" }
+log = { version = "0.4", default-features = false, features = ["std"] }
+mach2 = { version = "0.6" }
+metal = { version = "0.33" }
+objc2 = { version = "0.6" }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["NSArray", "NSAttributedString", "NSCoder", "NSData", "NSDate", "NSDictionary", "NSEnumerator", "NSError", "NSGeometry", "NSNull", "NSObjCRuntime", "NSObject", "NSProcessInfo", "NSRange", "NSRunLoop", "NSSet", "NSString", "NSURL", "NSValue", "objc2-core-foundation", "std", "NSThread"] }
+objc2-quartz-core = { version = "=0.3.2", default-features = false, features = ["std", "CALayer", "CAMetalLayer"] }
+parking_lot = { version = "0.12.1" }
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.build-dependencies]
+cbindgen = { version = "0.28.0", default-features = false }
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dev-dependencies]
+gpui = { package = "gpui-unofficial", version = "1.24.1-pre", features = ["test-support"] }
+
+[lints]
+rust = { unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("cargo-clippy"))'] }, deprecated = "allow" }
+
+[workspace]

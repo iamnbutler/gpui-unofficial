@@ -1,0 +1,27 @@
+[package]
+name = "perf-gpui-unofficial"
+version = "1.24.1-pre"
+edition = "2024"
+license = "Apache-2.0"
+description = "A tool for measuring Zed test performance, with too many Clippy lints"
+repository = "https://github.com/iamnbutler/gpui-unofficial"
+
+[features]
+default = ["cli"]
+cli = ["dep:serde_json"]
+
+[dependencies]
+collections = { package = "collections-gpui-unofficial", version = "1.24.1-pre" }
+serde = { version = "1.0", features = ["rc", "derive"] }
+serde_json = { version = "1.0.144", features = ["preserve_order", "raw_value"], optional = true }
+
+[lib]
+test = false
+doctest = false
+
+[[bin]]
+name = "perf"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[workspace]

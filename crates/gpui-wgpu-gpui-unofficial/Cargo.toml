@@ -1,0 +1,90 @@
+[package]
+name = "gpui-wgpu-gpui-unofficial"
+version = "1.24.1-pre"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/iamnbutler/gpui-unofficial"
+description = "Unofficial release of Zed's gpui_wgpu crate"
+
+[lib]
+path = "src/gpui_wgpu.rs"
+doctest = false
+
+[features]
+default = []
+bench-support = ["gpui/bench-support", "dep:image"]
+font-kit = ["dep:font-kit"]
+test-support = ["gpui/test-support", "dep:image"]
+
+[dependencies]
+gpui = { package = "gpui-unofficial", version = "1.24.1-pre" }
+anyhow = { version = "1.0.86" }
+bytemuck = { version = "1" }
+collections = { package = "collections-gpui-unofficial", version = "1.24.1-pre" }
+cosmic-text = "0.19.0"
+etagere = { version = "0.2" }
+itertools = { version = "0.14.0" }
+image = { version = "0.25.1", default-features = false, features = [
+    "bmp",
+    "dds",
+    "exr",
+    "ff",
+    "gif",
+    "hdr",
+    "ico",
+    "jpeg",
+    "png",
+    "pnm",
+    "qoi",
+    "rayon",
+    "tga",
+    "tiff",
+    "webp"], optional = true }
+log = { version = "0.4", default-features = false, features = ["std"] }
+parking_lot = { version = "0.12.1" }
+profiling = { version = "1" }
+raw-window-handle = { version = "0.6" }
+smallvec = { version = "1.6", features = ["union", "const_new"] }
+swash = { version = "0.2.6" }
+unicode-bidi = { version = "0.3.18", default-features = false, features = [
+    "hardcoded-data"] }
+unicode-segmentation = { version = "1.10" }
+gpui_util = { package = "gpui-util-gpui-unofficial", version = "1.24.1-pre" }
+font-kit = { version = "0.14.1-zed", package = "zed-font-kit", default-features = false, optional = true }
+
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
+wgpu = { version = "29.0", default-features = false, features = ["std", "parking_lot", "metal", "gles", "vulkan", "wgsl", "webgpu"] }
+
+[target.'cfg(not(any(target_os = "linux", target_os = "freebsd")))'.dependencies]
+wgpu = { version = "29.0", default-features = true }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+web-sys = { version = "0.3", features = ["HtmlCanvasElement"] }
+wgpu = { version = "29.0", default-features = false, features = ["webgl"] }
+
+[dev-dependencies]
+criterion = { version = "0.8.2", features = ["html_reports"] }
+gpui = { package = "gpui-unofficial", version = "1.24.1-pre", features = ["bench-support"] }
+image = { version = "0.25.1", default-features = false, features = [
+    "bmp",
+    "dds",
+    "exr",
+    "ff",
+    "gif",
+    "hdr",
+    "ico",
+    "jpeg",
+    "png",
+    "pnm",
+    "qoi",
+    "rayon",
+    "tga",
+    "tiff",
+    "webp"] }
+naga = { version = "29.0.4", features = ["wgsl-in"] }
+
+[[bench]]
+name = "layout_line"
+harness = false
+
+[workspace]

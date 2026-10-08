@@ -1,0 +1,146 @@
+[package]
+name = "gpui-macos-gpui-unofficial"
+version = "1.24.1-pre"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/iamnbutler/gpui-unofficial"
+description = "Unofficial release of Zed's gpui_macos crate"
+
+[lib]
+path = "src/gpui_macos.rs"
+doctest = false
+
+[features]
+default = ["gpui/default"]
+bench-support = ["gpui/bench-support", "gpui_apple/bench-support"]
+test-support = ["gpui/test-support", "gpui_apple/test-support"]
+runtime_shaders = ["gpui_apple/runtime_shaders"]
+font-kit = ["dep:font-kit", "dep:core-text", "dep:pathfinder_geometry"]
+screen-capture = ["gpui/screen-capture", "dep:objc2-core-graphics", "dep:objc2-core-media", "dep:objc2-screen-capture-kit"]
+
+[dependencies]
+gpui = { package = "gpui-unofficial", version = "1.24.1-pre" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+accesskit = { version = "0.24.0", features = ["enumn"] }
+accesskit_macos = { version = "0.26.0" }
+anyhow = { version = "1.0.86" }
+block2 = { version = "0.6" }
+cocoa = { version = "=0.26.0" }
+collections = { package = "collections-gpui-unofficial", version = "1.24.1-pre" }
+core-foundation = { version = "0.10" }
+core-foundation-sys = { version = "0.8.6" }
+core-graphics = { version = "0.24" }
+core-text = { version = "21", optional = true }
+core-video = { version = "0.5", default-features = false, features = ["link"] }
+ctor = { version = "1.0.12" }
+dispatch2 = { version = "0.3", default-features = false, features = ["std", "block2", "objc2"] }
+font-kit = { version = "0.14.1-zed", package = "zed-font-kit", default-features = false, features = ["source"], optional = true }
+foreign-types = { version = "0.5" }
+futures = { version = "0.3.34" }
+gpui_apple = { package = "gpui-apple-gpui-unofficial", version = "1.24.1-pre" }
+gpui_util = { package = "gpui-util-gpui-unofficial", version = "1.24.1-pre" }
+image = { version = "0.25.1", default-features = false, features = [
+    "bmp",
+    "dds",
+    "exr",
+    "ff",
+    "gif",
+    "hdr",
+    "ico",
+    "jpeg",
+    "png",
+    "pnm",
+    "qoi",
+    "rayon",
+    "tga",
+    "tiff",
+    "webp"] }
+itertools = { version = "0.14.0" }
+log = { version = "0.4", default-features = false, features = ["std"] }
+objc = { version = "0.2" }
+objc2 = { version = "0.6" }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = [
+    "NSAlert",
+    "NSApplication",
+    "NSButton",
+    "NSControl",
+    "NSDraggingItem",
+    "NSGraphics",
+    "NSImage",
+    "NSOpenPanel",
+    "NSPanel",
+    "NSPasteboard",
+    "NSResponder",
+    "NSSavePanel",
+    "NSScreen",
+    "NSTrackingArea",
+    "NSView",
+    "NSWindow",
+    "NSWorkspace",
+    "block2",
+    "objc2-core-foundation"] }
+objc2-core-graphics = { version = "=0.3.2", default-features = false, features = ["CGDirectDisplay"], optional = true }
+objc2-core-media = { version = "=0.3.2", default-features = false, features = ["CMSampleBuffer", "objc2-core-video"], optional = true }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = [
+    "NSArray",
+    "NSAttributedString",
+    "NSCoder",
+    "NSData",
+    "NSDate",
+    "NSDictionary",
+    "NSEnumerator",
+    "NSError",
+    "NSGeometry",
+    "NSNull",
+    "NSObjCRuntime",
+    "NSObject",
+    "NSProcessInfo",
+    "NSRange",
+    "NSRunLoop",
+    "NSSet",
+    "NSString",
+    "NSURL",
+    "NSValue",
+    "objc2-core-foundation",
+    "std"] }
+objc2-screen-capture-kit = { version = "=0.3.2", default-features = false, features = [
+    "block2",
+    "dispatch2",
+    "objc2-core-graphics",
+    "objc2-core-media",
+    "SCShareableContent",
+    "SCStream",
+    "std"
+], optional = true }
+objc2-user-notifications = { version = "0.3", default-features = false, features = [
+    "std",
+    "block2",
+    "UNNotification",
+    "UNNotificationAction",
+    "UNNotificationCategory",
+    "UNNotificationContent",
+    "UNNotificationRequest",
+    "UNNotificationResponse",
+    "UNNotificationTrigger",
+    "UNUserNotificationCenter"] }
+parking_lot = { version = "0.12.1" }
+pathfinder_geometry = { version = "0.5", optional = true }
+raw-window-handle = { version = "0.6" }
+scheduler = { package = "scheduler-gpui-unofficial", version = "1.24.1-pre" }
+semver = { version = "1.0", features = ["serde"] }
+smallvec = { version = "1.6", features = ["union", "const_new"] }
+strum = { version = "0.28", features = ["derive"] }
+uuid = { version = "1.1", features = ["serde"] }
+
+# The macOS test-only window implementation depends on test-only APIs from both
+# GPUI and the extracted renderer. A dependency does not inherit this crate's
+# `cfg(test)`, so dev-dependencies enable those APIs only for test builds.
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+gpui = { package = "gpui-unofficial", version = "1.24.1-pre", features = ["test-support"] }
+gpui_apple = { package = "gpui-apple-gpui-unofficial", version = "1.24.1-pre", features = ["test-support"] }
+
+[lints]
+rust = { unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("cargo-clippy"))'] }, deprecated = "allow" }
+
+[workspace]
