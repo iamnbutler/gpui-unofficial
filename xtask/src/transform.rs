@@ -636,14 +636,41 @@ fn resolve_workspace_dep(workspace_def: &Item, usage: &Item) -> Result<Option<It
         workspace_def.clone()
     };
 
-    // Merge features from usage
+    // Merge features from usage.
+    //
+    // Cargo's own `workspace = true` semantics UNION a member crate's
+    // `features` list with the workspace-level dependency's base `features`
+    // list — they are additive, not a replacement. For example zed's root
+    // Cargo.toml declares `derive_more = { features = ["deref", "deref_mut",
+    // "from_str"] }` while `crates/gpui/Cargo.toml` adds `features = ["add",
+    // "add_assign", ...]`; inside the full workspace gpui gets all of them
+    // combined. Replacing instead of unioning here silently dropped the
+    // workspace-level features (e.g. `deref`/`deref_mut`), which broke every
+    // `#[derive(Deref)]` struct once gpui was extracted and built standalone.
     if let Some(usage_table) = usage.as_table_like() {
         if let Some(result_table) = result.as_table_like_mut() {
             if let Some(features) = usage_table.get("features") {
                 if let Some(arr) = features.as_array() {
-                    let mut feat_arr = toml_edit::Array::new();
+                    let mut combined: Vec<String> = Vec::new();
+                    if let Some(Item::Value(Value::Array(existing))) =
+                        result_table.get("features")
+                    {
+                        for f in existing.iter() {
+                            if let Some(s) = f.as_str() {
+                                combined.push(s.to_string());
+                            }
+                        }
+                    }
                     for f in arr.iter() {
-                        feat_arr.push(f.clone());
+                        if let Some(s) = f.as_str() {
+                            if !combined.iter().any(|existing| existing == s) {
+                                combined.push(s.to_string());
+                            }
+                        }
+                    }
+                    let mut feat_arr = toml_edit::Array::new();
+                    for f in combined {
+                        feat_arr.push(f);
                     }
                     result_table.insert("features", Item::Value(Value::Array(feat_arr)));
                 }
@@ -1943,6 +1970,68 @@ gpui_util = { workspace = true }
             doc["dependencies"]["gpui_util"].get("path").is_none(),
             "version-deps transform must not add a path, got:\n{out}"
         );
+    }
+
+    /// A `workspace = true` external dependency's `features` entry in the
+    /// member crate's own Cargo.toml is ADDITIVE to the workspace-level
+    /// dependency's base `features` — Cargo unions them, it does not let the
+    /// member crate's list replace the base one. zed's root Cargo.toml
+    /// declares `derive_more = { features = ["deref", "deref_mut"] }` while
+    /// `crates/gpui/Cargo.toml` adds `features = ["add", "mul"]`; inside the
+    /// full workspace gpui gets all four features. If our transform instead
+    /// replaced the base features with the crate's own list, `deref`/`deref_mut`
+    /// would silently vanish and every `#[derive(Deref)]` struct in the
+    /// extracted, standalone-built crate would fail to compile with "no field"
+    /// / "no method" errors despite the struct macro still being present.
+    #[test]
+    fn workspace_dep_features_are_unioned_not_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        let zed_dir = dir.path().join("zed");
+        fs::create_dir_all(&zed_dir).unwrap();
+        fs::write(
+            zed_dir.join("Cargo.toml"),
+            r#"[workspace]
+members = []
+
+[workspace.dependencies]
+derive_more = { version = "2.1", features = ["deref", "deref_mut"] }
+"#,
+        )
+        .unwrap();
+        let workspace_deps = parse_workspace_deps(&zed_dir).unwrap();
+
+        let crate_dir = dir.path().join("gpui");
+        fs::create_dir_all(&crate_dir).unwrap();
+        fs::write(
+            crate_dir.join("Cargo.toml"),
+            r#"[package]
+name = "gpui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+derive_more = { workspace = true, features = ["add", "mul"] }
+"#,
+        )
+        .unwrap();
+
+        transform_cargo_toml(&crate_dir, dir.path(), "gpui", &workspace_deps, "v1.21.0", false).unwrap();
+
+        let out = fs::read_to_string(crate_dir.join("Cargo.toml")).unwrap();
+        let doc: DocumentMut = out.parse().unwrap();
+        let features: Vec<&str> = doc["dependencies"]["derive_more"]["features"]
+            .as_array()
+            .unwrap_or_else(|| panic!("derive_more must keep a features array, got:\n{out}"))
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+
+        for expected in ["deref", "deref_mut", "add", "mul"] {
+            assert!(
+                features.contains(&expected),
+                "expected feature {expected:?} present in union, got {features:?} from:\n{out}"
+            );
+        }
     }
 
     /// zed's gpui_macros declares its inspector-only `gpui` dependency under
